@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.2.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -332,10 +332,20 @@ function vLedger() {
     <div class="fig"><div class="k">Income</div><div class="v good">${money(tt.income)}</div></div>
     <div class="fig"><div class="k">Budget left</div><div class="v ${budgetTotal ? (left < 0 ? 'bad' : '') : ''}">${budgetTotal ? money(left) : '—'}</div></div>
   </div>`;
+  // Two filter rows: cards, then categories. The chosen chip moves next to "All" so it's always in view.
+  const selFirst = (items, sel) => sel ? items.filter(x => x.id === sel).concat(items.filter(x => x.id !== sel)) : items;
+  const accChips = selFirst(accts().map(a => ({ id: a.id, label: a.name })), S.filterAcc);
+  const catSpend = {};
+  all.forEach(t => { if (!S.filterAcc || t.acc === S.filterAcc) catSpend[t.cat] = (catSpend[t.cat] || 0) + Math.abs(t.amt); });
+  if (S.filterCat && !catSpend[S.filterCat]) catSpend[S.filterCat] = 0;
+  const catChips = selFirst(Object.keys(catSpend).sort((x, y) => catSpend[y] - catSpend[x]).map(id => ({ id, label: catName(id) })), S.filterCat);
   h += `<div class="chips" role="group" aria-label="Filter by card">
     <button class="chip${!S.filterAcc ? ' on' : ''}" data-act="filter-acc" data-id="">All cards</button>
-    ${accts().map(a => `<button class="chip${S.filterAcc === a.id ? ' on' : ''}" data-act="filter-acc" data-id="${esc(a.id)}">${esc(a.name)}</button>`).join('')}
-    ${S.filterCat ? `<button class="chip on" data-act="filter-cat" data-id="">${esc(catName(S.filterCat))} ✕</button>` : ''}
+    ${accChips.map(c => `<button class="chip${S.filterAcc === c.id ? ' on' : ''}" data-act="filter-acc" data-id="${esc(c.id)}">${esc(c.label)}</button>`).join('')}
+  </div>`;
+  if (catChips.length) h += `<div class="chips" role="group" aria-label="Filter by category">
+    <button class="chip${!S.filterCat ? ' on' : ''}" data-act="filter-cat" data-id="">All categories</button>
+    ${catChips.map(c => `<button class="chip${S.filterCat === c.id ? ' on' : ''}" data-act="filter-cat" data-id="${esc(c.id)}">${esc(c.label)}</button>`).join('')}
   </div>`;
   if (!list.length) {
     return h + `<div class="empty"><b>Nothing in ${esc(monthLabel(S.month))} yet</b>Scan a statement, or add one with the + button.</div>`;
@@ -1047,8 +1057,8 @@ document.addEventListener('click', e => {
     case 'settings': openSheet({ kind: 'settings' }); break;
     case 'close-sheet': closeSheet(); break;
     case 'start': startLedger(); break;
-    case 'filter-acc': S.filterAcc = id || null; render(); break;
-    case 'filter-cat': S.filterCat = id || null; render(); break;
+    case 'filter-acc': S.filterAcc = id && id !== S.filterAcc ? id : null; render(); break;
+    case 'filter-cat': S.filterCat = id && id !== S.filterCat ? id : null; render(); break;
     case 'drill-cat': S.filterCat = id; S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0); break;
     case 'drill-acc': S.filterAcc = id; S.filterCat = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0); break;
     case 'stats-by': S.statsBy = b.dataset.by; render(); break;
