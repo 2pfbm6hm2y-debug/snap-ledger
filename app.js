@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -369,17 +369,31 @@ function vStats() {
   }
   rows.sort((a, b) => b.v - a.v);
   const total = rows.reduce((s, r) => s + r.v, 0);
-  const scale = Math.max(1, ...rows.map(r => Math.max(r.v, r.budget || 0)));
   let h = `<section class="sec"><div class="sec-h"><h2>Spending</h2>
     <div class="seg" role="group" aria-label="Group by"><button class="${S.statsBy === 'cat' ? 'on' : ''}" data-act="stats-by" data-by="cat">Category</button><button class="${S.statsBy === 'acc' ? 'on' : ''}" data-act="stats-by" data-by="acc">Card</button></div></div>
-    <div class="big">${money(total)} <small>in ${esc(monthLabel(ym))}</small></div>`;
+    <div class="big">${money(total)} <small>in ${esc(monthLabel(ym))}</small></div>
+    <p class="muted" style="font-size:13px;margin:6px 0 0">${S.statsBy === 'cat' ? 'Each bar fills up to its own monthly budget.' : 'Each bar is that card\'s share of this month\'s spending.'}</p>`;
   if (!rows.length) h += `<p class="muted">No spending recorded this month.</p>`;
   h += `<div style="margin-top:8px">` + rows.map(r => {
-    const pct = total ? Math.round(r.v / total * 100) : 0;
-    return `<button class="bar-row" data-act="${S.statsBy === 'cat' ? 'drill-cat' : 'drill-acc'}" data-id="${esc(r.id)}" aria-label="${esc(r.name)}: ${money(r.v)}, ${pct}% of spending">
-      <div class="bar-top"><span class="bar-name">${esc(r.name)}</span><span class="bar-val">${money(r.v)}<small>${pct}%</small></span></div>
-      <div class="track"><div class="fill" style="width:${(r.v / scale * 100).toFixed(1)}%"></div>${r.budget ? `<div class="tick" style="left:${Math.min(100, r.budget / scale * 100).toFixed(1)}%" title="Budget ${money(r.budget, 0)}"></div>` : ''}</div>
-      ${r.budget ? `<div class="bar-sub"><span>Budget ${money(r.budget, 0)}</span><span>${r.v > r.budget ? 'Over by ' + money(r.v - r.budget, 0) : money(r.budget - r.v, 0) + ' left'}</span></div>` : ''}
+    const share = total ? Math.round(r.v / total * 100) : 0;
+    const act = S.statsBy === 'cat' ? 'drill-cat' : 'drill-acc';
+    if (S.statsBy === 'cat' && r.budget) {
+      const used = Math.round(r.v / r.budget * 100), over = r.v > r.budget + 0.004;
+      return `<button class="bar-row" data-act="${act}" data-id="${esc(r.id)}" aria-label="${esc(r.name)}: ${money(r.v)}, ${used}% of its ${money(r.budget, 0)} budget">
+        <div class="bar-top"><span class="bar-name">${esc(r.name)}</span><span class="bar-val">${money(r.v)}<small>${used}% of budget</small></span></div>
+        <div class="track"><div class="fill${over ? ' bad' : ''}" style="width:${Math.min(100, r.v / r.budget * 100).toFixed(1)}%"></div></div>
+        <div class="bar-sub"><span>Budget ${money(r.budget, 0)}</span><span>${over ? 'Over by ' + money(r.v - r.budget, 0) : money(r.budget - r.v, 0) + ' left'}</span></div>
+      </button>`;
+    }
+    if (S.statsBy === 'cat') {
+      return `<button class="bar-row" data-act="${act}" data-id="${esc(r.id)}" aria-label="${esc(r.name)}: ${money(r.v)}, no budget set">
+        <div class="bar-top"><span class="bar-name">${esc(r.name)}</span><span class="bar-val">${money(r.v)}<small>${share}% of spending</small></span></div>
+        <div class="bar-sub" style="margin-top:0"><span>No budget set</span><span></span></div>
+      </button>`;
+    }
+    return `<button class="bar-row" data-act="${act}" data-id="${esc(r.id)}" aria-label="${esc(r.name)}: ${money(r.v)}, ${share}% of spending">
+      <div class="bar-top"><span class="bar-name">${esc(r.name)}</span><span class="bar-val">${money(r.v)}<small>${share}%</small></span></div>
+      <div class="track"><div class="fill" style="width:${share}%"></div></div>
     </button>`;
   }).join('') + `</div></section>`;
 
