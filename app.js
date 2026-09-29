@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.9.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1348,7 +1348,7 @@ function renderSheet() {
       <div class="sheet-actions"><button class="btn" data-act="backup">Back up now</button><label class="btn" for="restore-file">Restore backup</label></div>
       <button class="btn wide" data-act="export" style="margin-top:10px">Export all as CSV</button>
       <div class="sub-h">Display</div>
-      <label class="field"><span>When you add entries</span><select class="in" data-set="celebrate">${[['screen', 'Success screen with the bunny'], ['hop', 'Quick bunny hop'], ['off', 'Just a message']].map(([v, l]) => `<option value="${v}"${celebrateMode() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="field"><span>When you add entries</span><select class="in" data-set="celebrate">${[['sweep', 'Bunny sweeps up the screen'], ['screen', 'Success screen with the bunny'], ['hop', 'Bunny hop'], ['off', 'Just a message']].map(([v, l]) => `<option value="${v}"${celebrateMode() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="field"><span>Currency symbol</span><input class="in" data-set="cur" value="${esc(cur())}" maxlength="4" style="max-width:120px"></label>
       <div class="sub-h">Expense categories</div><p class="muted" style="font-size:13px;margin:-4px 0 8px">Use the arrows to set the order they appear in across the app.</p><div class="cat-list">${cats().filter(c => c.type === 'exp').map(catRow).join('')}</div>
       <div class="sub-h">Income categories</div><div class="cat-list">${cats().filter(c => c.type === 'inc').map(catRow).join('')}</div>
@@ -1455,15 +1455,32 @@ function confettiBits(at, n) {
   }
   return bits;
 }
-// How adding entries is celebrated: 'screen' (full success screen), 'hop' (small bunny hop) or 'off'.
-const celebrateMode = () => { const s = st() || {}; return s.celebrate || (s.bunny === false ? 'off' : 'screen'); };
+// How adding entries is celebrated: 'sweep' (quick leap up the screen), 'screen' (full success
+// screen), 'hop' (small bunny hop) or 'off'.
+const celebrateMode = () => { const s = st() || {}; return s.celebrate || (s.bunny === false ? 'off' : 'sweep'); };
 // info: { badge: short hop label, title, sub }. fallback: the plain message used when motion is off.
 function celebrate(info, fallback) {
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches, mode = celebrateMode();
   if (reduce || mode === 'off') { if (fallback) toast(fallback); return; }
-  document.querySelectorAll('.bn-fx,.ok-fx').forEach(e => e.remove());
+  document.querySelectorAll('.bn-fx,.ok-fx,.sw-fx').forEach(e => e.remove());
   clearTimeout(celebT); $('#toast').hidden = true;
-  if (mode === 'hop') bunnyHop(info.badge, fallback); else successScreen(info);
+  if (mode === 'hop') bunnyHop(info.badge, fallback);
+  else if (mode === 'screen') successScreen(info);
+  else bunnySweep(info.badge, fallback);
+}
+// The bunny leaps from the bottom of the screen and out the top in under a second, leaving a few
+// sparkles where it passed. The pill says what was added.
+function bunnySweep(label, fallback) {
+  const colors = ['#F2C14E', '#FF8FAB', 'var(--accent)', '#52C48E', '#9B8CFF', '#FF9F5A', '#F2C14E'];
+  // [height on screen, sideways offset, when the bunny passes (ms)]
+  const stars = [[86, -34, 260], [76, 38, 320], [64, -26, 370], [52, 32, 420], [40, -36, 470], [28, 26, 520], [16, -22, 575]]
+    .map(([y, x, t], i) => `<i class="sw-star" style="top:${y}%;margin-left:${x}px;animation-delay:${t}ms;--c:${colors[i]}"></i>`).join('');
+  const el = document.createElement('div');
+  el.className = 'sw-fx'; el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = `${stars}<div class="sw-fly"><span class="sw-trail"></span><div class="sw-lean">${BUNNY_SVG}</div></div><div class="sw-pill">${esc(label)}</div>`;
+  document.body.appendChild(el);
+  $('#toast').textContent = fallback || label; // screen readers still hear it
+  celebT = setTimeout(() => el.remove(), 1600);
 }
 let celebT, okClose = null;
 function bunnyHop(label, fallback) {
