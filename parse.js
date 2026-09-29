@@ -334,7 +334,10 @@
       return false;
     };
     const items = [], skipped = [];
-    let curDate = null, pending = [], lastTx = null, skipArmed = 0;
+    // A screenshot often starts mid-list, below a date heading that was on the previous screenshot.
+    // opts.startDate carries that heading over; headings seen later fill any gap that's left.
+    let curDate = opts.startDate ? { iso: opts.startDate, carried: true } : null, pending = [], lastTx = null, skipArmed = 0;
+    const headings = [];
     for (let li = 0; li < cl.length; li++) {
       const line = cl[li];
       if (line === 'BREAK') { curDate = null; pending = []; lastTx = null; skipArmed = 0; continue; }
@@ -344,7 +347,7 @@
       const dates = findDates(line);
       if (!amts.length) {
         const rest = dropDebris(strip(line, dates, [])).replace(WEEKDAY_RE, '');
-        if (dates.length && letterCount(rest) < 3) { const r = resolveDate(pickDate(dates), ref); if (r) curDate = r; pending = []; lastTx = null; skipArmed = 0; continue; }
+        if (dates.length && letterCount(rest) < 3) { const r = resolveDate(pickDate(dates), ref); if (r) { curDate = r; headings.push({ at: items.length, iso: r.iso }); } pending = []; lastTx = null; skipArmed = 0; continue; }
         if (SKIP_RE.test(line)) { pending = []; lastTx = null; skipArmed = 2; continue; }
         if (letterCount(rest) < 2 || /^\d{1,2}:\d{2}/.test(line)) { if (skipArmed) skipArmed--; continue; }
         if (isNav(rest)) { lastTx = null; pending = []; continue; }
@@ -387,11 +390,19 @@
       raw = raw.replace(/^[\s\-–:|•·@]+|[\s\-–:|•·@]+$/g, '');
       const ownDate = dates.length ? resolveDate(pickDate(dates), ref) : null;
       const date = ownDate || pDate || curDate;
-      const item = { raw, cont: 0, value: amt.value, minus: amt.minus, plus: amt.plus, paren: amt.paren, cr: amt.cr, dr: amt.dr, fx: fxNote, date: date ? date.iso : (ref.stmt ? iso(ref.stmt.getFullYear(), ref.stmt.getMonth() + 1, ref.stmt.getDate()) : null), dateGuessed: !date };
+      const item = { raw, cont: 0, value: amt.value, minus: amt.minus, plus: amt.plus, paren: amt.paren, cr: amt.cr, dr: amt.dr, fx: fxNote, date: date ? date.iso : null, dateGuessed: !date, dateCarried: !!(date && date.carried) };
       items.push(item);
       lastTx = item;
       pending = [];
     }
+    // Lines still without a date: use the next date heading below them (lists run newest first),
+    // else the statement date. Either way they are flagged for a check.
+    items.forEach((t, k) => {
+      if (t.date) return;
+      const h = headings.find(x => x.at > k);
+      t.date = h ? h.iso : (ref.stmt ? iso(ref.stmt.getFullYear(), ref.stmt.getMonth() + 1, ref.stmt.getDate()) : null);
+      t.dateGuessed = true;
+    });
     // Sign convention: app lists that mark spending with "-" vs statements that mark credits with "-", "( )" or CR.
     const minusN = items.filter(t => t.minus).length, plainN = items.filter(t => !t.minus && !t.plus && !t.cr && !t.paren).length;
     const minusIsSpend = minusN > 0 && minusN >= plainN;
@@ -406,9 +417,9 @@
       const c = categorise(t.raw, opts);
       let cat = c.cat;
       if (kind === 'inc' && opts.hasCat && opts.hasCat('cashback')) cat = 'cashback';
-      out.push({ date: t.date, dateGuessed: t.dateGuessed, raw: t.raw, merchant: c.merchant, amount: Math.round(t.value * 100) / 100, kind, cat, how: kind === 'inc' ? 'known' : c.how, fx: t.fx });
+      out.push({ date: t.date, dateGuessed: t.dateGuessed, dateCarried: t.dateCarried, raw: t.raw, merchant: c.merchant, amount: Math.round(t.value * 100) / 100, kind, cat, how: kind === 'inc' ? 'known' : c.how, fx: t.fx });
     });
-    return { transactions: out, skipped, statementDate: ref.stmt ? iso(ref.stmt.getFullYear(), ref.stmt.getMonth() + 1, ref.stmt.getDate()) : null };
+    return { transactions: out, skipped, lastDate: curDate ? curDate.iso : null, statementDate: ref.stmt ? iso(ref.stmt.getFullYear(), ref.stmt.getMonth() + 1, ref.stmt.getDate()) : null };
   }
   // App navigation bars and screen furniture ("Home  History  Rewards  More").
   const NAV_WORDS = new Set(['HOME', 'HISTORY', 'REWARDS', 'MORE', 'MEMBERSHIP', 'OFFERS', 'ACCOUNT', 'ACCOUNTS', 'PAY', 'SCAN', 'CARDS', 'PROFILE', 'SETTINGS', 'MENU', 'TRANSFER', 'INVEST', 'SEARCH', 'FILTER', 'STATEMENTS', 'ACTIVITY', 'AND', 'PLAN', 'INSIGHTS', 'WEALTH', 'SERVICES', 'INBOX', 'DASHBOARD', 'OVERVIEW', 'DISCOVER', 'DEALS', 'SUPPORT', 'HELP']);

@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.1.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -563,7 +563,7 @@ function vGroups() {
     const skippedN = (g.skipped || []).length;
     const head = `<div class="grp-h">
         ${g.thumb ? `<img class="grp-thumb" src="${esc(g.thumb)}" alt="">` : ''}
-        <div class="grp-info"><b>${esc(g.label)}</b><span class="muted">${g.auto ? 'Card matched by ' + esc(g.why) : accts().length > 1 ? "Couldn't tell the card. Pick it here." : ''}</span></div>
+        <div class="grp-info"><b>${esc(g.label)}</b><span class="muted">${g.auto ? 'Card matched by ' + esc(g.why) : g.inherited ? 'No card shown, so using the card from ' + esc(g.why) + '. Check it.' : accts().length > 1 ? "Couldn't tell the card. Pick it here." : ''}</span></div>
         <select class="in grp-acc${g.auto ? '' : ' unsure'}" data-g="${gi}" aria-label="Card for ${esc(g.label)}">${accOptions(g.acc)}</select>
       </div>`;
     const body = idx.length ? idx.map(i => vRow(I.rows[i], i)).join('')
@@ -585,6 +585,7 @@ function vRow(r, i) {
   if (r.kind === 'ref') tags.push('<span class="tag good">Refund</span>');
   if (r.kind === 'inc') tags.push('<span class="tag good">Income</span>');
   if (r.dateGuess) tags.push('<span class="tag warn">Check date</span>');
+  else if (r.dateCarried) tags.push('<span class="tag">Date from previous screenshot</span>');
   if (r.fx) tags.push(`<span class="tag warn">${esc(r.fx)} amount, check SGD</span>`);
   return `<div class="rv${r.sel ? '' : ' off'}${r.invalid ? ' invalid' : ''}" data-i="${i}">
     <div class="rv-check"><input type="checkbox" data-f="sel" ${r.sel ? 'checked' : ''} aria-label="Include ${esc(r.m)}"></div>
@@ -801,9 +802,17 @@ async function readStatements() {
     setPhase('Picking out transactions…');
     const hasCat = id => !!catById(id);
     const hints = st().acctHints || {};
+    // Screenshots are read in the order you picked them. When one continues the list from the
+    // screenshot before it (same card), it starts under that screenshot's last date heading.
+    let prev = null;
     const results = blocks.map(b => {
-      const res = SnapParse.parse(b.text, { hasCat, rules: st().rules || {}, today: todayISO() });
       const det = SnapParse.detectAccount(b.text, accts(), hints);
+      // No card visible at all (scrolled past the header): assume it continues the previous screenshot.
+      if (!det.found && prev && prev.acc && b.thumb && prev.thumb && !det.signals.last4.length) det.found = { id: prev.acc, why: prev.label, inherited: true };
+      const acc = det.found ? det.found.id : null;
+      const sameScreen = prev && b.thumb && prev.thumb && (acc ? acc === prev.acc : (!prev.acc && det.signals.headKey && det.signals.headKey === prev.headKey));
+      const res = SnapParse.parse(b.text, { hasCat, rules: st().rules || {}, today: todayISO(), startDate: sameScreen ? prev.lastDate : null });
+      prev = { acc, label: b.label, headKey: det.signals.headKey, lastDate: res.lastDate || (sameScreen ? prev.lastDate : null), thumb: !!b.thumb };
       return Object.assign(res, { label: b.label, thumb: b.thumb || '', found: det.found, signals: det.signals });
     });
     I.source = blocks.map(b => `=== ${b.label} ===\n${b.text}`).join('\n\n');
@@ -829,14 +838,14 @@ function buildRows(results, notes) {
   const today = todayISO();
   results.forEach((res, gi) => {
     const acc = res.found && accById(res.found.id) ? res.found.id : I.accountId;
-    groups.push({ label: res.label, thumb: res.thumb, acc, why: res.found ? res.found.why : '', auto: !!res.found, signals: res.signals, skipped: res.skipped });
+    groups.push({ label: res.label, thumb: res.thumb, acc, why: res.found ? res.found.why : '', auto: !!res.found && !res.found.inherited, inherited: !!(res.found && res.found.inherited), signals: res.signals, skipped: res.skipped });
     skipped.push(...res.skipped);
     res.transactions.forEach(t => {
       if (!(t.amount > 0)) return;
       const type = t.kind === 'inc' ? 'inc' : 'exp';
       let cat = t.cat, conf = t.how === 'none' ? 'low' : 'high';
       if (!cat || !catById(cat) || catById(cat).type !== type) { cat = fallbackCat(type); conf = 'low'; }
-      rows.push({ g: gi, sel: true, d: t.date || today, dateGuess: !t.date, m: t.merchant || 'Unnamed', raw: t.raw, amt: t.amount, kind: t.kind, cat, acc, conf, learned: t.how === 'learned', fx: t.fx || '', dup: false });
+      rows.push({ g: gi, sel: true, d: t.date || today, dateGuess: !t.date || t.dateGuessed, dateCarried: !!t.dateCarried, m: t.merchant || 'Unnamed', raw: t.raw, amt: t.amount, kind: t.kind, cat, acc, conf, learned: t.how === 'learned', fx: t.fx || '', dup: false });
     });
   });
   I.rows = rows; I.groups = groups; I.skipped = skipped; I.notes = notes.join(' '); I.status = 'review';
@@ -1128,7 +1137,7 @@ function onField(e, isChange) {
   }
   if (el.classList && el.classList.contains('grp-acc') && isChange) {
     const gi = +el.dataset.g, g = S.imp.groups[gi]; if (!g) return;
-    g.acc = el.value; g.auto = true; g.why = 'your choice';
+    g.acc = el.value; g.auto = true; g.inherited = false; g.why = 'your choice';
     S.imp.rows.forEach(r => { if (r.g === gi) r.acc = el.value; });
     markDuplicates();
     $('#rv-list').innerHTML = vGroups(); const foot = $('#rv-foot'); if (foot) foot.innerHTML = vFoot();
