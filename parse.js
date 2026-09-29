@@ -14,7 +14,7 @@
   const SKIP_RE = /\b(current\s+balance|previous\s+(statement\s+)?balance|balance\s+(b\/?f|brought|carried|forward|due)|new\s+balance|statement\s+balance|closing\s+balance|opening\s+balance|outstanding(\s+balance)?|available\s+(credit|limit|balance)|credit\s+limit|combined\s+limit|minimum\s+(amount\s+)?(payment|due)|payment\s+due|amount\s+due|due\s+date|not\s+required|unbilled\s+(amount|balance)|sub[\s-]?total|grand\s+total|total\s+(amount|balance|due|spend|spent|credits?|debits?)|^total\b|reward\s+points|points\s+(earned|balance)|page\s+\d+\s+of\s+\d+|transaction\s+date|posting\s+date|description\s+amount)\b/i;
   const STMT_DATE_RE = /\b(statement\s+date|statement\s+period|billing\s+date|statement\s+as\s+at)\b/i;
   const PAYMENT_RE = /\b(payment\s*[-–]?\s*thank\s*you|thank\s+you|payment\s+by|bill\s+payment|payment\s+received|payment\s+-\s*(ibanking|internet|giro|fast|paynow)|giro\s+payment|auto(matic)?\s*payment|autopay|fast\s+payment|paynow\s+(to|payment)|card\s+payment|payment\s+via|ibg\s+payment|interbank\s+giro|pymt|paymt)\b/i;
-  const TOPUP_RE = /\b(top[\s-]?up|topup|reload(ed)?\s+(wallet|card)|add(ed)?\s+money|cash\s+in)\b/i;
+  const TOPUP_RE = /\b(top[\s-]?up|topup|reload(ed)?\s+(wallet|card)|add(ed)?\s+money|cash\s+in|send\s+back\s+from|withdraw(al)?\s+(from|to)\s+(wallet|paylah|grabpay|bank))\b/i;
   const CASHBACK_RE = /\b(cash\s*back|cashback|rebate|reward(s)?\s+(credit|redemption)|statement\s+credit|bonus\s+credit)\b/i;
   const FEE_RE = /\b(interest(\s+charge)?|finance\s+charge|late\s+(payment\s+)?(fee|charge)|annual\s+fee|card\s+fee|ccy\s+conversion|currency\s+conversion|foreign\s+(transaction|currency)\s+(fee|charge)|fx\s+fee|admin(istrative)?\s+fee|service\s+charge|over\s*limit\s+fee|cash\s+advance\s+fee)\b/i;
   const SUBTITLE_RE = /^(pending|posted|completed|authori[sz]ed|debit|credit|card\s+ending.*|card\s+\*+\s*\d+|purchase|online|contactless|in[\s-]store|transport(ation)?|groceries|food(\s*&\s*drinks?)?|dining|shopping|bills?|utilities|entertainment|travel|health.*|others?|subscriptions?|transfer|fast|paynow|nets|visa|mastercard|amex|x{2,}[x\s-]*\d{0,4})$/i;
@@ -392,7 +392,8 @@
       const date = ownDate || pDate || curDate;
       const item = { raw, cont: 0, value: amt.value, minus: amt.minus, plus: amt.plus, paren: amt.paren, cr: amt.cr, dr: amt.dr, fx: fxNote, date: date ? date.iso : null, dateGuessed: !date, dateCarried: !!(date && date.carried) };
       items.push(item);
-      lastTx = item;
+      // When the amount sits on its own line under its description, text after it starts the next entry.
+      lastTx = isAmountOnly ? null : item;
       pending = [];
     }
     // Lines still without a date: use the next date heading below them (lists run newest first),
@@ -411,7 +412,8 @@
       t.raw = t.raw.slice(0, 160);
       const credit = !!(t.cr || t.paren || t.plus || (t.minus && !minusIsSpend));
       // Payments and top-ups move money between your own accounts. credit: money came into this account.
-      const move = { raw: t.raw, amount: Math.round(t.value * 100) / 100, date: t.date, dateGuessed: t.dateGuessed, dateCarried: t.dateCarried, credit };
+      // back: money returned from a wallet to the bank ("send back from", "withdraw from").
+      const move = { raw: t.raw, amount: Math.round(t.value * 100) / 100, date: t.date, dateGuessed: t.dateGuessed, dateCarried: t.dateCarried, credit, back: /send\s+back\s+from|withdraw(al)?\s+(from|to\s+bank)/i.test(t.raw) };
       if (TOPUP_RE.test(t.raw)) { skipped.push(Object.assign(move, { kind: 'topup' })); return; }
       if (PAYMENT_RE.test(t.raw)) { skipped.push(Object.assign(move, { kind: 'payment' })); return; }
       let kind = 'exp';

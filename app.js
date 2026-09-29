@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.7.1';
+const APP_VERSION = '1.7.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -398,8 +398,8 @@ const firstCat = type => (cats().find(c => c.type === type) || {}).id || '';
 
 /* ---------- render: chrome ---------- */
 function renderTop() {
-  if (S.tab === 'import' || S.tab === 'budget') {
-    $('#top').innerHTML = `<span></span><div class="top-title">${S.tab === 'import' ? 'Scan a statement' : 'Budgets'}</div><button class="icon-btn" data-act="settings" aria-label="Settings">${ICON.gear}</button>`;
+  if (S.tab === 'import' || S.tab === 'budget' || S.tab === 'cards') {
+    $('#top').innerHTML = `<span></span><div class="top-title">${S.tab === 'import' ? 'Scan a statement' : S.tab === 'budget' ? 'Budgets' : 'Cards'}</div><button class="icon-btn" data-act="settings" aria-label="Settings">${ICON.gear}</button>`;
     return;
   }
   $('#top').innerHTML = `<span class="brand" aria-hidden="true"></span>
@@ -695,7 +695,6 @@ function vBudget() {
 }
 
 function vCards() {
-  const ym = S.month;
   const list = accts(), bals = balances();
   let h = '';
   if (!list.length) {
@@ -714,19 +713,15 @@ function vCards() {
       <p class="muted" style="font-size:12px;margin:8px 0 0">From the figures you entered from your bank apps, plus everything since. Update a card or account below to check it still matches.</p></section>`;
   }
   h += list.map(a => {
-    const b = bals[a.id];
-    const tx = monthTx(ym).filter(t => t.acc === a.id && (t.type === 'exp' || t.type === 'inc'));
-    const tt = totals(tx);
-    const byC = {}; tx.forEach(t => { if (t.type === 'exp') byC[t.cat] = (byC[t.cat] || 0) + t.amt; });
-    const top = Object.entries(byC).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]).slice(0, 3);
+    // Spending lives in Stats. Here each card shows what's in it, or what you owe on it.
+    const b = bals[a.id], liab = isLiab(a);
     return `<div class="card-tile ${esc(a.kind || 'credit')}">
       <span class="stripe"></span>
       <div class="ct-top"><span class="ct-name">${esc(a.name)}</span><span class="ct-l4">${a.last4 ? '•••• ' + esc(a.last4) : ''}</span></div>
-      <div class="ct-amt">${money(tt.spent)}</div>
-      <div class="ct-meta">${tx.length} transaction${tx.length === 1 ? '' : 's'} in ${esc(monthLabel(ym))}${tt.income ? ` · <span class="num">${money(tt.income)}</span> credited` : ''}</div>
-      ${top.length ? `<div class="ct-cats">${top.map(([c, v]) => `<span>${esc(catName(c))} <b>${money(v, 0)}</b></span>`).join('')}</div>` : ''}
-      ${b ? `<div class="ct-bal"><span class="k">${isLiab(a) ? 'Owed' : 'Balance'}</span><span class="v num">${money(shown(a, b.v))}</span><span class="m">Checked ${esc(fmtDate(b.cp.d))}</span></div>` : ''}
-      <div class="ct-acts"><button class="btn small" data-act="drill-acc" data-id="${esc(a.id)}">Transactions</button><button class="btn small" data-act="bal" data-id="${esc(a.id)}">${b ? 'Update balance' : 'Add balance'}</button><button class="btn small" data-act="edit-card" data-id="${esc(a.id)}">Edit</button></div>
+      ${b ? `<div class="ct-k">${liab ? 'Owed' : 'Balance'}</div><div class="ct-amt${!liab && b.v < 0 ? ' t-bad' : ''}">${money(shown(a, b.v))}</div>
+      <div class="ct-meta">Last checked with your bank ${esc(fmtDate(b.cp.d))}</div>`
+      : `<p class="ct-meta ct-none">No balance yet. Add one to track what you ${liab ? 'owe on this card' : 'have in this account'}.</p>`}
+      <div class="ct-acts"><button class="btn small" data-act="drill-acc" data-id="${esc(a.id)}">Transactions</button><button class="btn small" data-act="bal" data-id="${esc(a.id)}"${b ? ' aria-label="Update balance"' : ''}>${b ? 'Update' : 'Add balance'}</button><button class="btn small ct-edit" data-act="edit-card" data-id="${esc(a.id)}">Edit</button></div>
     </div>`;
   }).join('');
   h += `<button class="btn wide primary" data-act="new-card">Add a card</button>`;
@@ -779,7 +774,9 @@ function vReview() {
   const I = S.imp;
   let h = '';
   if (!I.rows.length) {
-    h += `<div class="empty"><b>No transactions found</b>${I.notes ? esc(I.notes) + ' ' : ''}Check the recognised text below, or add lines by hand.
+    const n = I.skipped.length, tops = I.skipped.filter(x => x.kind === 'topup').length;
+    const moved = n ? `Left out ${n} ${tops === n ? 'wallet top-up' : tops ? 'top-up or card payment' : 'card payment'}${n === 1 ? '' : 's'}. ${n === 1 ? 'It moves' : 'They move'} money between your own accounts, so ${n === 1 ? "it isn't" : "they aren't"} spending. ` : '';
+    h += `<div class="empty"><b>${n ? 'Nothing to add' : 'No transactions found'}</b>${moved}${I.notes ? esc(I.notes) + ' ' : ''}${n ? 'If something is missing, check' : 'Check'} the recognised text below, or add lines by hand.
       <div class="sheet-actions" style="margin-top:14px;justify-content:center"><button class="btn" data-act="imp-back">Back</button><button class="btn primary" data-act="rv-add">Add a line</button></div></div>`;
     h += vSource();
     return h;
@@ -1096,12 +1093,12 @@ function buildRows(results, notes) {
     const left = [];
     // Card payments and top-ups come in as transfers once either side has a balance you track.
     res.skipped.forEach(p => {
-      const a = accById(acc);
-      const dirIn = (p.kind === 'payment' && isLiab(a)) || (p.kind === 'topup' && a && a.kind === 'wallet') || !!p.credit;
-      const other = dirIn ? suggestFrom(acc) : suggestTo(acc, p.raw, p.kind);
+      const a = accById(acc), wallet = id => !!(accById(id) && accById(id).kind === 'wallet'), isW = wallet(acc);
+      // Top-ups go into the wallet, and send-backs come out of it. Card payments go into the card.
+      const dirIn = p.kind === 'topup' ? (isW ? !p.back : !!p.back) : (p.kind === 'payment' && isLiab(a)) || !!p.credit;
+      const other = p.kind === 'topup' && !isW ? suggestTo(acc, p.raw, 'topup') : dirIn ? suggestFrom(acc) : suggestTo(acc, p.raw, p.kind);
       // A top-up only moves money if a wallet is on one side. Otherwise it's inside one account.
-      const wallet = id => !!(accById(id) && accById(id).kind === 'wallet');
-      if (p.kind === 'topup' && !wallet(acc) && !wallet(other)) { left.push(p); return; }
+      if (p.kind === 'topup' && !isW && !wallet(other)) { left.push(p); return; }
       if (!(p.amount > 0) || !(bals[acc] || bals[other])) { left.push(p); return; }
       rows.push({ g: gi, sel: true, d: p.date || today, dateGuess: !p.date || p.dateGuessed, dateCarried: !!p.dateCarried, m: p.kind === 'topup' ? 'Top-up' : 'Card payment', raw: p.raw, amt: p.amount, kind: 'xfer', dir: dirIn ? 'in' : 'out', from: dirIn ? other : acc, to: dirIn ? acc : other, cat: fallbackCat('exp'), acc, conf: 'high', learned: false, fx: '', dup: false });
     });
@@ -1252,7 +1249,7 @@ function welcomeSteps() {
   steps.push({
     icon: ICON.wallet,
     title: 'Keep balances matched',
-    body: `<p>Optional. In <b>Cards</b>, tap <b>Add balance</b> and copy the figure from your bank app. Spending, income and transfers then move it.</p><ul><li>Card bills and wallet top-ups are transfers between your own accounts, so they don't count as spending.</li><li>Now and then, tap <b>Update balance</b> with the bank's figure. If it's off, a correction entry makes it match.</li></ul><p class="muted">Your data lives only on this phone, so use Settings → Back up now from time to time.</p>`
+    body: `<p>Optional. In <b>Cards</b>, tap <b>Add balance</b> and copy the figure from your bank app. Spending, income and transfers then move it.</p><ul><li>Card bills and wallet top-ups are transfers between your own accounts, so they don't count as spending.</li><li>Now and then, tap <b>Update</b> on a card and enter the bank's figure. If it's off, a correction entry makes it match.</li></ul><p class="muted">Your data lives only on this phone, so use Settings → Back up now from time to time.</p>`
   });
   return steps;
 }
