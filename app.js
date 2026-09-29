@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.1.2';
+const APP_VERSION = '1.1.3';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1007,7 +1007,7 @@ function saveTx() {
       if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
       mo()[ym].txns.push(Object.assign(old, rec)); saveMonth(ym);
     }
-    if (old.raw) { const k = normKey(old.raw); if (k) { const r = st().rules || (st().rules = {}); delete r[k]; r[k] = { c: cat, m: rec.m }; saveSettings(); } }
+    if (old.raw) { const k = SnapParse.normKey(old.raw); if (k) { const r = st().rules || (st().rules = {}); delete r[k]; r[k] = { c: cat, m: rec.m }; saveSettings(); } }
   } else {
     if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
     mo()[ym].txns.push(Object.assign({ id: newId(), raw: '', src: 'manual', t: Date.now() }, rec)); saveMonth(ym);
