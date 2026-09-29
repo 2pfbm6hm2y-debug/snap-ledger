@@ -13,8 +13,8 @@
 <meta name="apple-mobile-web-app-title" content="Ledger">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/cards-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/cards-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
@@ -22,7 +22,7 @@
 :root{
   --bg:#F2F3F6; --surface:#FFFFFF; --surface-2:#EBEDF2; --line:#DDE0E8; --ink:#141925; --ink-2:#454C5E; --muted:#747B8F;
   --accent:#2446D6; --accent-ink:#FFFFFF; --accent-soft:#DFE5FB; --accent-mid:#A9B8F2;
-  --good:#1B7A50; --good-soft:#DCF0E5; --warn:#9A620C; --warn-soft:#F7EAD2; --bad:#BD3526; --bad-soft:#F8DEDA;
+  --good:#1B7A50; --good-soft:#DCF0E5; --warn:#A36A00; --warn-soft:#FCEFC7; --warn-fill:#E5A800; --bad:#BD3526; --bad-soft:#F8DEDA;
   --track:#E4E7EE; --scrim:rgba(14,18,28,.42); --shadow:0 1px 2px rgba(20,25,37,.05),0 10px 30px rgba(20,25,37,.10);
   --tabh:66px;
   --sans:'Schibsted Grotesk',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
@@ -33,7 +33,7 @@
     color-scheme:dark;
     --bg:#0D1016; --surface:#161A22; --surface-2:#1D222C; --line:#2A303C; --ink:#E8EBF2; --ink-2:#B5BBCB; --muted:#868EA2;
     --accent:#8198FF; --accent-ink:#0D1016; --accent-soft:#1E2748; --accent-mid:#3A4A8C;
-    --good:#52C48E; --good-soft:#14281E; --warn:#E3AA4E; --warn-soft:#2D2313; --bad:#F27B6B; --bad-soft:#331B17;
+    --good:#52C48E; --good-soft:#14281E; --warn:#F2C14E; --warn-soft:#332810; --warn-fill:#F2C14E; --bad:#F27B6B; --bad-soft:#331B17;
     --track:#242A35; --scrim:rgba(0,0,0,.6); --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.4);
   }
 }
@@ -41,7 +41,7 @@
   color-scheme:dark;
   --bg:#0D1016; --surface:#161A22; --surface-2:#1D222C; --line:#2A303C; --ink:#E8EBF2; --ink-2:#B5BBCB; --muted:#868EA2;
   --accent:#8198FF; --accent-ink:#0D1016; --accent-soft:#1E2748; --accent-mid:#3A4A8C;
-  --good:#52C48E; --good-soft:#14281E; --warn:#E3AA4E; --warn-soft:#2D2313; --bad:#F27B6B; --bad-soft:#331B17;
+  --good:#52C48E; --good-soft:#14281E; --warn:#F2C14E; --warn-soft:#332810; --warn-fill:#F2C14E; --bad:#F27B6B; --bad-soft:#331B17;
   --track:#242A35; --scrim:rgba(0,0,0,.6); --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.4);
 }
 *{box-sizing:border-box}
@@ -125,7 +125,7 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .bar-val small{color:var(--muted);font-size:12px;margin-left:6px}
 .track{position:relative;height:8px;border-radius:4px;background:var(--track)}
 .fill{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--accent)}
-.fill.good{background:var(--good)} .fill.warn{background:var(--warn)} .fill.bad{background:var(--bad)}
+.fill.good{background:var(--good)} .fill.warn{background:var(--warn-fill)} .fill.bad{background:var(--bad)}
 .tick{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;background:var(--ink);border-radius:1px;opacity:.55}
 .bar-sub{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);margin-top:6px}
 
@@ -145,6 +145,10 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .big{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:26px;font-weight:500;letter-spacing:-.02em}
 .big small{font-size:14px;color:var(--muted);font-weight:400}
 .pace-note{font-size:13px;color:var(--muted);margin-top:8px}
+.t-warn{color:var(--warn);font-weight:600}
+.t-bad{color:var(--bad);font-weight:600}
+.legend{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:6px 10px;margin-top:12px;font-size:12px;color:var(--muted)}
+.legend .pill{height:20px;font-size:11px;justify-self:start}
 .bgt-edit{display:grid;grid-template-columns:1fr 130px;gap:8px 12px;align-items:center}
 .bgt-edit label{font-weight:500}
 .bgt-total-l{padding-top:10px;border-top:1px solid var(--line)}

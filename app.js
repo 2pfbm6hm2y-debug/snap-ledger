@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.2.1';
+const APP_VERSION = '1.3.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -262,11 +262,20 @@ function elapsedFrac(ym) {
   if (ym > now) return 0;
   return new Date().getDate() / daysIn(ym);
 }
+// Over: past the month's budget. At risk: within budget but above the run rate (budget spread
+// evenly over the month, up to today). On track: at or under the run rate.
 function budgetStatus(spent, budget, frac) {
   if (!(budget > 0)) return null;
-  if (spent > budget + 0.004) return { k: 'bad', icon: ICON.over, label: 'Over by ' + money(spent - budget, 0) };
-  if (frac < 1 && spent / budget > frac + 0.1) return { k: 'warn', icon: ICON.warn, label: 'Ahead of pace' };
-  return { k: 'good', icon: ICON.ok, label: frac >= 1 ? 'Within budget' : 'On track' };
+  const runRate = budget * Math.min(1, Math.max(0, frac));
+  if (spent > budget + 0.004) return { k: 'bad', rank: 0, icon: ICON.over, label: 'Over', over: spent - budget, runRate };
+  if (frac < 1 && spent > runRate + 0.004) return { k: 'warn', rank: 1, icon: ICON.warn, label: 'At risk', ahead: spent - runRate, runRate };
+  return { k: 'good', rank: 2, icon: ICON.ok, label: frac >= 1 ? 'Within budget' : 'On track', under: runRate - spent, runRate };
+}
+// Right-hand note under a budget bar, by status.
+function statusNote(stt, left, isNow, daysLeft) {
+  if (stt.k === 'bad') return `<span class="t-bad">Over by <span class="num">${money(stt.over, 0)}</span></span>`;
+  if (stt.k === 'warn') return `<span class="t-warn"><span class="num">${money(stt.ahead, 0)}</span> above run rate</span>`;
+  return `<span class="num">${money(left, 0)}</span> left${isNow && daysLeft > 0 ? ` · <span class="num">${money(left / daysLeft, 0)}</span>/day` : ''}`;
 }
 
 /* ---------- options ---------- */
@@ -404,8 +413,9 @@ function statsByCategory(ym, seg) {
     const st0 = budgetStatus(spentB, totalB, frac), left = totalB - spentB;
     h += `<div class="bar-top" style="margin-top:12px"><span class="num">${money(spentB, 0)} of ${money(totalB, 0)} budget</span><span class="pill ${st0.k}">${st0.icon}${esc(st0.label)}</span></div>
       <div class="track" style="height:12px"><div class="fill ${st0.k}" style="width:${Math.min(100, spentB / totalB * 100).toFixed(1)}%"></div>${paceTick(frac)}</div>
-      <div class="bar-sub"><span>${Math.round(spentB / totalB * 100)}% used${isNow ? ` · ${Math.round(frac * 100)}% of the month gone` : ''}</span><span>${left >= 0 ? `<span class="num">${money(left, 0)}</span> left` : `Over by <span class="num">${money(-left, 0)}</span>`}</span></div>
-      <div class="pace-note">${isNow ? `Day ${today} of ${days}. The line on each bar marks where spending would be at an even pace today.${left > 0 ? ` You can spend about <span class="num">${money(left / daysLeft, 0)}</span> a day for the rest of the month.` : ''}` : frac >= 1 ? 'This month is over.' : "This month hasn't started."}${unbTotal > 0.004 ? ` Plus <span class="num">${money(unbTotal, 0)}</span> in categories without a budget.` : ''}</div>`;
+      <div class="bar-sub"><span>${Math.round(spentB / totalB * 100)}% used${isNow ? ` · ${Math.round(frac * 100)}% of the month gone` : ''}</span><span>${statusNote(st0, left, false, daysLeft)}</span></div>
+      <div class="pace-note">${isNow ? `Day ${today} of ${days}. Run rate today is <span class="num">${money(st0.runRate, 0)}</span>, marked by the line on each bar.${st0.k === 'warn' ? ` You're <span class="num">${money(st0.ahead, 0)}</span> above it.` : st0.k === 'good' ? ` You're <span class="num">${money(st0.under, 0)}</span> under it.` : ''}${left > 0 ? ` You can spend about <span class="num">${money(left / daysLeft, 0)}</span> a day for the rest of the month.` : ''}` : frac >= 1 ? 'This month is over.' : "This month hasn't started."}${unbTotal > 0.004 ? ` Plus <span class="num">${money(unbTotal, 0)}</span> in categories without a budget.` : ''}</div>
+      <div class="legend"><span class="pill good">${ICON.ok}On track</span><span>At or under the run rate</span><span class="pill warn">${ICON.warn}At risk</span><span>Above the run rate, still within budget</span><span class="pill bad">${ICON.over}Over</span><span>Past the month's budget</span></div>`;
   } else {
     h += `<p class="muted" style="font-size:14px">Set monthly budgets to see whether you're on track.</p><button class="btn small" data-act="tab" data-tab="budget">Set budgets</button>`;
   }
@@ -413,13 +423,14 @@ function statsByCategory(ym, seg) {
   if (!total && !totalB) return h + `<div class="empty"><b>No spending in ${esc(monthLabel(ym))}</b>Scan a statement or add a transaction.</div>`;
 
   if (withB.length) {
-    const rows = withB.map(c => ({ c, v: spent[c.id] || 0 })).sort((a, b) => (b.v / b.c.budget) - (a.v / a.c.budget));
+    const rows = withB.map(c => ({ c, v: spent[c.id] || 0, st: budgetStatus(spent[c.id] || 0, c.budget, frac) }))
+      .sort((a, b) => (a.st.rank - b.st.rank) || ((b.v / b.c.budget) - (a.v / a.c.budget)));
     h += `<section class="sec"><div class="sec-h"><h2>By category</h2><span class="muted" style="font-size:13px">Bar fills to each budget</span></div>` + rows.map(({ c, v }) => {
       const stt = budgetStatus(v, c.budget, frac), left = c.budget - v, used = Math.round(v / c.budget * 100);
       return `<button class="bar-row" data-act="drill-cat" data-id="${esc(c.id)}" aria-label="${esc(c.name)}: ${money(v)} of ${money(c.budget, 0)}, ${stt.label}">
         <div class="bar-top"><span class="bar-name">${esc(c.name)}</span><span class="pill ${stt.k}">${stt.icon}${esc(stt.label)}</span></div>
         <div class="track"><div class="fill ${stt.k}" style="width:${Math.min(100, v / c.budget * 100).toFixed(1)}%"></div>${paceTick(frac)}</div>
-        <div class="bar-sub"><span class="num">${money(v)} of ${money(c.budget, 0)} · ${used}%</span><span>${left >= 0 ? `<span class="num">${money(left, 0)}</span> left${isNow && daysLeft > 0 ? ` · <span class="num">${money(left / daysLeft, 0)}</span>/day` : ''}` : ''}</span></div>
+        <div class="bar-sub"><span class="num">${money(v)} of ${money(c.budget, 0)} · ${used}%</span><span>${statusNote(stt, left, isNow, daysLeft)}</span></div>
       </button>`;
     }).join('') + `</section>`;
   }
