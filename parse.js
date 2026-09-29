@@ -409,9 +409,11 @@
     const out = [];
     items.forEach(t => {
       t.raw = t.raw.slice(0, 160);
-      if (TOPUP_RE.test(t.raw)) { skipped.push({ raw: t.raw, amount: t.value, kind: 'topup' }); return; }
-      if (PAYMENT_RE.test(t.raw)) { skipped.push({ raw: t.raw, amount: t.value, kind: 'payment' }); return; }
-      const credit = t.cr || t.paren || t.plus || (t.minus && !minusIsSpend);
+      const credit = !!(t.cr || t.paren || t.plus || (t.minus && !minusIsSpend));
+      // Payments and top-ups move money between your own accounts. credit: money came into this account.
+      const move = { raw: t.raw, amount: Math.round(t.value * 100) / 100, date: t.date, dateGuessed: t.dateGuessed, dateCarried: t.dateCarried, credit };
+      if (TOPUP_RE.test(t.raw)) { skipped.push(Object.assign(move, { kind: 'topup' })); return; }
+      if (PAYMENT_RE.test(t.raw)) { skipped.push(Object.assign(move, { kind: 'payment' })); return; }
       let kind = 'exp';
       if (credit) kind = CASHBACK_RE.test(t.raw) ? 'inc' : 'ref';
       const c = categorise(t.raw, opts);

@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.5.2';
+const APP_VERSION = '1.6.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -40,12 +40,23 @@ const DEFAULT_CATS = [
   ['food', 'Food & Drinks', 'exp'], ['groceries', 'Groceries', 'exp'], ['transport', 'Transport', 'exp'], ['shopping', 'Shopping', 'exp'],
   ['bills', 'Bills & Utilities', 'exp'], ['home', 'Rent & Home', 'exp'], ['health', 'Health', 'exp'], ['fun', 'Entertainment', 'exp'],
   ['travel', 'Travel', 'exp'], ['subs', 'Subscriptions', 'exp'], ['edu', 'Education', 'exp'], ['gifts', 'Gifts & Giving', 'exp'],
-  ['care', 'Personal Care', 'exp'], ['fees', 'Fees & Interest', 'exp'], ['other', 'Other', 'exp'],
+  ['care', 'Personal Care', 'exp'], ['fees', 'Fees & Interest', 'exp'], ['other', 'Other', 'exp'], ['special', 'Special Spending', 'exp'],
   ['salary', 'Salary', 'inc'], ['cashback', 'Cashback & Rewards', 'inc'], ['otherinc', 'Other income', 'inc']
-].map(([id, name, type]) => ({ id, name, type, budget: null }));
+].map(([id, name, type]) => Object.assign({ id, name, type, budget: null }, id === 'special' ? { outside: true } : {}));
 
 function defaultSettings() {
-  return { v: 1, cur: 'S$', accounts: [], categories: clone(DEFAULT_CATS), rules: {} };
+  return { v: 2, cur: 'S$', accounts: [], categories: clone(DEFAULT_CATS), rules: {} };
+}
+// Ledgers from before v2 get the Special Spending category once. Returns true if settings changed.
+function migrate(s) {
+  if (!s || (s.v || 1) >= 2) return false;
+  const list = s.categories || (s.categories = []);
+  if (!list.some(c => c.id === 'special')) {
+    let at = -1; list.forEach((c, i) => { if (c.type === 'exp') at = i; });
+    list.splice(at + 1, 0, { id: 'special', name: 'Special Spending', type: 'exp', budget: null, outside: true });
+  }
+  s.v = 2;
+  return true;
 }
 
 function makeDemo() {
@@ -88,8 +99,23 @@ function makeDemo() {
     add(3, 'subs', 'Spotify', 11.98, 'demo-b'); add(8, 'subs', 'Netflix', 22.98, 'demo-b'); add(12, 'subs', 'iCloud+', 4.48, 'demo-a');
     add(14, 'bills', 'Singtel mobile', 42.9, 'demo-a'); add(20, 'bills', 'SP Group', 96 + rnd() * 40, 'demo-c');
     add(26, 'cashback', 'Card cashback', 18 + rnd() * 10, 'demo-b', 'inc');
+    add(25, 'salary', 'Salary', 5200, 'demo-c', 'inc');
+    if (k === -4) add(18, 'special', 'Sofa', 890, 'demo-b');
+    if (k === -2) add(9, 'special', 'Flights to Bali', 486.4, 'demo-a');
     months[ym] = { month: ym, txns };
   }
+  // Starting balances, then each card's bill is paid from the savings account on the 12th.
+  const first = addMonths(nowYm, -5);
+  [['demo-c', 6400], ['demo-a', 0], ['demo-b', 0]].forEach(([acc, bal]) => months[first].txns.push({ id: newId(), d: first + '-01', amt: bal, type: 'adj', acc, cat: '', m: 'Starting balance', raw: '', src: 'demo', t: 0, bal, first: true }));
+  for (let k = -4; k <= 0; k++) {
+    const ym = addMonths(nowYm, k), prev = addMonths(ym, -1);
+    if (k === 0 && today < 12) continue;
+    ['demo-a', 'demo-b'].forEach(acc => {
+      const owed = months[prev].txns.reduce((n, t) => n + (t.acc !== acc ? 0 : t.type === 'exp' ? t.amt : t.type === 'inc' ? -t.amt : 0), 0);
+      if (owed > 0) months[ym].txns.push({ id: newId(), d: ym + '-12', amt: round2(owed), type: 'xfer', acc: 'demo-c', to: acc, cat: '', m: 'Card payment', raw: '', src: 'demo', t: Date.now() });
+    });
+  }
+  s.payFrom = { 'demo-a': 'demo-c', 'demo-b': 'demo-c' };
   return { settings: s, months };
 }
 
@@ -119,7 +145,13 @@ const accById = id => accts().find(a => a.id === id);
 const catName = id => (catById(id) || { name: 'Uncategorised' }).name;
 const accName = id => { const a = accById(id); return a ? a.name + (a.last4 ? ' ••' + a.last4 : '') : 'No card'; };
 const monthTx = ym => (mo()[ym] && mo()[ym].txns) || [];
-const kindOf = t => t.type === 'inc' ? 'inc' : (t.amt < 0 ? 'ref' : 'exp');
+const kindOf = t => t.type === 'xfer' ? 'xfer' : t.type === 'adj' ? 'adj' : t.type === 'inc' ? 'inc' : (t.amt < 0 ? 'ref' : 'exp');
+const accShort = id => (accById(id) || { name: 'No card' }).name;
+const isOutside = id => { const c = catById(id); return !!(c && c.outside); };
+const budgetCats = () => cats().filter(c => c.type === 'exp' && !c.outside && c.budget > 0);
+const allTx = () => Object.values(mo()).reduce((a, m) => a.concat((m && m.txns) || []), []);
+const isLiab = a => !!a && a.kind === 'credit';
+const fmtDate = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: iso.slice(0, 4) === todayISO().slice(0, 4) ? undefined : 'numeric' });
 const money = (n, dp = 2) => (n < 0 ? '−' : '') + cur() + Math.abs(n).toLocaleString('en-SG', { minimumFractionDigits: dp, maximumFractionDigits: dp });
 const txCount = () => Object.values(mo()).reduce((n, m) => n + ((m && m.txns) || []).length, 0);
 
@@ -161,7 +193,7 @@ const Store = {
       const all = await IDB.entries();
       let settings = null; const months = {};
       all.forEach(([k, v]) => { if (k === 'settings') settings = v; else if (String(k).startsWith('month:')) months[String(k).slice(6)] = v; });
-      if (settings) { S.real = { settings, months }; S.demo = false; render(); }
+      if (settings) { const changed = migrate(settings); S.real = { settings, months }; S.demo = false; if (changed) saveSettings(); render(); }
       else enterDemo();
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(p => { S.persisted = p; }).catch(() => {});
     } catch (e) {
@@ -233,6 +265,7 @@ async function readBackup(file) {
 }
 async function restoreBackup(j) {
   const settings = clone(j.settings), months = {};
+  migrate(settings);
   Object.keys(j.months).forEach(ym => { if (/^\d{4}-\d{2}$/.test(ym) && j.months[ym] && Array.isArray(j.months[ym].txns)) months[ym] = { month: ym, txns: clone(j.months[ym].txns) }; });
   try { await Store.replaceAll(settings, months); }
   catch (e) { toast("Couldn't restore on this phone. Try again."); return; }
@@ -253,7 +286,7 @@ function spendByAcc(ym) {
 }
 function totals(list) {
   let spent = 0, income = 0;
-  list.forEach(t => { if (t.type === 'exp') spent += t.amt; else income += t.amt; });
+  list.forEach(t => { if (t.type === 'exp') spent += t.amt; else if (t.type === 'inc') income += t.amt; });
   return { spent: round2(spent), income: round2(income) };
 }
 function elapsedFrac(ym) {
@@ -278,10 +311,86 @@ function statusNote(stt, left, isNow, daysLeft) {
   return `<span class="num">${money(left, 0)}</span> left${isNow && daysLeft > 0 ? ` · <span class="num">${money(left / daysLeft, 0)}</span>/day` : ''}`;
 }
 
+/* ---------- balances ----------
+   An account's balance starts from the latest figure you entered from your bank app. That figure is
+   kept on a balance entry (type 'adj', figure in .bal). Entries dated after that day, or dated the
+   same day and added after it, move the balance. Anything dated earlier is taken as already in the
+   bank's figure, and anything dated after today hasn't happened yet. Balances are kept as net worth:
+   accounts positive, card debt negative. shown() turns that into what the bank app shows. */
+const sameOrAfter = (t, cp) => t.d > cp.d || (t.d === cp.d && (t.t || 0) > (cp.t || 0));
+const shown = (a, v) => isLiab(a) ? -v : v;
+function flowOf(t, id) {
+  if (t.type === 'exp') return t.acc === id ? -t.amt : 0;
+  if (t.type === 'inc') return t.acc === id ? t.amt : 0;
+  if (t.type === 'xfer') return (t.to === id ? t.amt : 0) - (t.acc === id ? t.amt : 0);
+  return 0;
+}
+function balances() {
+  const all = allTx(), out = {}, today = todayISO();
+  all.forEach(t => { if (t.type === 'adj' && isFinite(t.bal) && accById(t.acc)) { const o = out[t.acc]; if (!o || sameOrAfter(t, o.cp)) out[t.acc] = { cp: t, v: 0 }; } });
+  Object.keys(out).forEach(id => {
+    const cp = out[id].cp; let v = cp.bal;
+    all.forEach(t => { if (t.type !== 'adj' && t.d <= today && (t.acc === id || t.to === id) && sameOrAfter(t, cp)) v += flowOf(t, id); });
+    out[id].v = round2(v);
+  });
+  return out;
+}
+// How a correction reads: the change in what the bank app shows.
+function adjText(t) {
+  if (t.first) return 'Start';
+  const d = round2(shown(accById(t.acc), t.amt));
+  return Math.abs(d) < 0.005 ? 'Matched' : (d > 0 ? '+' : '') + money(d);
+}
+function balDiffNote(id, x) {
+  const a = accById(id), b = balances()[id];
+  if (!b) return '';
+  if (!isFinite(x)) return 'Enter the figure to see the difference.';
+  const diff = round2(x - shown(a, b.v));
+  if (Math.abs(diff) < 0.005) return '<span class="t-good">Matches. Saving records the check.</span>';
+  return `${isLiab(a) ? 'You owe' : 'Your bank shows'} <b class="num">${money(Math.abs(diff))}</b> ${diff > 0 ? 'more' : 'less'} than expected. Saving adds a correction for the difference.`;
+}
+function saveBalance() {
+  const a = S.sheet && accById(S.sheet.id); if (!a) return;
+  const x = parseAmt($('#b-val').value);
+  if (!isFinite(x)) return toast('Enter the figure from your bank app.');
+  const b = balances()[a.id], bal = round2(isLiab(a) ? -x : x), amt = b ? round2(bal - b.v) : bal;
+  const d = todayISO(), ym = ymOf(d);
+  if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
+  const rec = { id: newId(), d, amt, type: 'adj', acc: a.id, cat: '', m: !b ? 'Starting balance' : Math.abs(amt) < 0.005 ? 'Balance check' : 'Balance correction', raw: '', src: 'balance', t: Date.now(), bal };
+  if (!b) rec.first = true;
+  mo()[ym].txns.push(rec); saveMonth(ym);
+  closeSheet(); render();
+  toast(!b ? 'Balance set.' : Math.abs(amt) < 0.005 ? 'Balance matches.' : 'Correction added.');
+}
+// Transfers: which account usually pays a card or tops up a wallet, and where an outgoing payment went.
+function suggestFrom(to) {
+  const pf = (st().payFrom || {})[to];
+  if (pf && pf !== to && accById(pf)) return pf;
+  const a = accts().find(x => x.id !== to && x.kind === 'debit') || accts().find(x => x.id !== to && !isLiab(x));
+  return a ? a.id : '';
+}
+function suggestTo(from, raw, kind) {
+  const others = accts().filter(a => a.id !== from);
+  const up = String(raw || '').toUpperCase();
+  if (up) {
+    const words = n => String(n).toUpperCase().split(/[^A-Z0-9]+/).filter(w => w.length >= 3 && !/^(CARD|CREDIT|DEBIT|BANK|ACCOUNT|THE|VISA|MASTERCARD|PLATINUM|SAVINGS|WALLET|CASH|GOLD|REWARDS|CASHBACK)$/.test(w));
+    const hits = others.map(a => ({ a, n: words(a.name).filter(w => up.includes(w)).length })).filter(h => h.n).sort((x, y) => y.n - x.n);
+    if (hits.length && (hits.length === 1 || hits[0].n > hits[1].n)) return hits[0].a.id;
+  }
+  if (kind === 'topup') { const w = others.filter(a => a.kind === 'wallet'); if (w.length === 1) return w[0].id; }
+  const paid = Object.keys(st().payFrom || {}).filter(to => st().payFrom[to] === from && to !== from && accById(to));
+  if (paid.length === 1) return paid[0];
+  if (raw !== undefined) return '';
+  const c = others.find(isLiab) || others[0];
+  return c ? c.id : '';
+}
+function rememberPayFrom(from, to) { if (!accById(from) || !accById(to)) return; (st().payFrom || (st().payFrom = {}))[to] = from; }
+
 /* ---------- options ---------- */
 const catOptions = (type, sel) => cats().filter(c => c.type === type).map(c => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
 const accOptions = sel => accts().map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}${a.last4 ? ' ••' + esc(a.last4) : ''}</option>`).join('');
-const kindOptions = sel => [['exp', 'Expense'], ['ref', 'Refund'], ['inc', 'Income']].map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
+const pickOptions = sel => `<option value=""${sel ? '' : ' selected'}>Pick…</option>` + accOptions(sel);
+const kindOptions = (sel, withX) => [['exp', 'Expense'], ['ref', 'Refund'], ['inc', 'Income']].concat(withX ? [['xfer', 'Transfer']] : []).map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
 const firstCat = type => (cats().find(c => c.type === type) || {}).id || '';
 
 /* ---------- render: chrome ---------- */
@@ -329,10 +438,12 @@ function onData() {
 /* ---------- views ---------- */
 function vLedger() {
   const all = monthTx(S.month);
-  const list = all.filter(t => (!S.filterAcc || t.acc === S.filterAcc) && (!S.filterCat || t.cat === S.filterCat))
+  const list = all.filter(t => (!S.filterAcc || t.acc === S.filterAcc || t.to === S.filterAcc) && (!S.filterCat || t.cat === S.filterCat))
     .sort((a, b) => b.d.localeCompare(a.d) || (b.t || 0) - (a.t || 0));
-  const tt = totals(list);
-  const bCats = cats().filter(c => c.type === 'exp' && c.budget > 0);
+  // Spent counts the monthly budget's categories, unless you're looking at one category.
+  const tt = totals(list.filter(t => S.filterCat || !isOutside(t.cat)));
+  const spec = S.filterCat ? 0 : round2(list.reduce((n, t) => n + (t.type === 'exp' && isOutside(t.cat) ? t.amt : 0), 0));
+  const bCats = budgetCats();
   const budgetTotal = bCats.reduce((s, c) => s + c.budget, 0);
   const sp = spendByCat(S.month);
   const left = budgetTotal - bCats.reduce((s, c) => s + (sp[c.id] || 0), 0);
@@ -340,12 +451,12 @@ function vLedger() {
     <div class="fig"><div class="k">Spent</div><div class="v">${money(tt.spent)}</div></div>
     <div class="fig"><div class="k">Income</div><div class="v good">${money(tt.income)}</div></div>
     <div class="fig"><div class="k">Budget left</div><div class="v ${budgetTotal ? (left < 0 ? 'bad' : '') : ''}">${budgetTotal ? money(left) : '—'}</div></div>
-  </div>`;
+  </div>${spec > 0.004 ? `<p class="sum-note">Plus <span class="num">${money(spec)}</span> outside the monthly budget.</p>` : ''}`;
   // Two filter rows: cards, then categories. The chosen chip moves next to "All" so it's always in view.
   const selFirst = (items, sel) => sel ? items.filter(x => x.id === sel).concat(items.filter(x => x.id !== sel)) : items;
   const accChips = selFirst(accts().map(a => ({ id: a.id, label: a.name })), S.filterAcc);
   const catSpend = {};
-  all.forEach(t => { if (!S.filterAcc || t.acc === S.filterAcc) catSpend[t.cat] = (catSpend[t.cat] || 0) + Math.abs(t.amt); });
+  all.forEach(t => { if ((t.type === 'exp' || t.type === 'inc') && (!S.filterAcc || t.acc === S.filterAcc)) catSpend[t.cat] = (catSpend[t.cat] || 0) + Math.abs(t.amt); });
   if (S.filterCat && !catSpend[S.filterCat]) catSpend[S.filterCat] = 0;
   const catChips = selFirst(Object.keys(catSpend).sort((x, y) => catSpend[y] - catSpend[x]).map(id => ({ id, label: catName(id) })), S.filterCat);
   h += `<div class="chips" role="group" aria-label="Filter by card">
@@ -365,7 +476,13 @@ function vLedger() {
     const dayNet = g.items.reduce((s, t) => s + (t.type === 'exp' ? t.amt : 0), 0);
     return `<section class="day" id="day-${esc(g.d)}"><div class="day-h"><span>${esc(dayLabel(g.d))}</span><span class="num">${money(dayNet)}</span></div>
       ${g.items.map(t => {
-        const k = kindOf(t);
+        const k = kindOf(t), open = `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}">`;
+        if (k === 'xfer') return `${open}<span class="tx-cat">Transfer</span>
+          <span class="tx-main"><span class="tx-m">${esc(t.m || 'Transfer')}</span><span class="tx-acc">${esc(accShort(t.acc))} → ${esc(accShort(t.to))}</span></span>
+          <span class="tx-amt xfer">${money(t.amt)}</span></button>`;
+        if (k === 'adj') { const a = accById(t.acc); return `${open}<span class="tx-cat">Balance</span>
+          <span class="tx-main"><span class="tx-m">${esc(t.m || 'Balance correction')}</span><span class="tx-acc">${esc(accShort(t.acc))} · ${isLiab(a) ? 'owed' : 'balance'} ${money(shown(a, t.bal))}</span></span>
+          <span class="tx-amt adj">${esc(adjText(t))}</span></button>`; }
         return `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}">
           <span class="tx-cat">${esc(catName(t.cat))}</span>
           <span class="tx-main"><span class="tx-m">${esc(t.m || catName(t.cat))}</span><span class="tx-acc">${esc(accName(t.acc))}${k === 'ref' ? ' · Refund' : ''}</span></span>
@@ -382,7 +499,7 @@ function vStats() {
   let h = S.statsBy === 'cat' ? statsByCategory(ym, seg) : statsByCard(ym, seg);
 
   const months = []; for (let k = -5; k <= 0; k++) months.push(addMonths(ym, k));
-  const vals = months.map(m => Object.values(spendByCat(m)).reduce((s, v) => s + v, 0));
+  const vals = months.map(m => { const sp = spendByCat(m); return Object.keys(sp).reduce((n, id) => n + (isOutside(id) ? 0 : sp[id]), 0); });
   const max = Math.max(1, ...vals);
   const avg = vals.slice(0, 5).filter(v => v > 0);
   const avgV = avg.length ? avg.reduce((s, v) => s + v, 0) / avg.length : 0;
@@ -397,9 +514,10 @@ function vStats() {
 const paceTick = frac => frac > 0 && frac < 1 ? `<div class="tick" style="left:${(frac * 100).toFixed(1)}%" title="Even pace for today"></div>` : '';
 function statsByCategory(ym, seg) {
   const frac = elapsedFrac(ym);
-  const spent = spendByCat(ym);
-  const expCats = cats().filter(c => c.type === 'exp');
-  const withB = expCats.filter(c => c.budget > 0);
+  const spent = {}; let special = 0;
+  const allSp = spendByCat(ym);
+  Object.keys(allSp).forEach(id => { if (isOutside(id)) special += allSp[id]; else spent[id] = allSp[id]; });
+  const withB = budgetCats();
   const total = Object.values(spent).reduce((s, v) => s + v, 0);
   const totalB = withB.reduce((s, c) => s + c.budget, 0);
   const spentB = withB.reduce((s, c) => s + (spent[c.id] || 0), 0);
@@ -408,7 +526,8 @@ function statsByCategory(ym, seg) {
   const days = daysIn(ym), today = new Date().getDate(), isNow = ym === ymOf(todayISO()), daysLeft = days - today + 1;
 
   let h = `<section class="sec"><div class="sec-h"><h2>This month</h2>${seg}</div>
-    <div class="big">${money(total)} <small>spent</small></div>`;
+    <div class="big">${money(total)} <small>spent</small></div>
+    ${special > 0.004 ? `<div class="pace-note" style="margin-top:4px">Plus <span class="num">${money(special)}</span> outside the monthly budget, shown in the yearly view below.</div>` : ''}`;
   if (totalB) {
     const st0 = budgetStatus(spentB, totalB, frac), left = totalB - spentB;
     h += `<div class="bar-top" style="margin-top:12px"><span class="num">${money(spentB, 0)} of ${money(totalB, 0)} budget</span><span class="pill ${st0.k}">${st0.icon}${esc(st0.label)}</span></div>
@@ -420,7 +539,7 @@ function statsByCategory(ym, seg) {
     h += `<p class="muted" style="font-size:14px">Set monthly budgets to see whether you're on track.</p><button class="btn small" data-act="tab" data-tab="budget">Set budgets</button>`;
   }
   h += `</section>`;
-  if (!total && !totalB) return h + `<div class="empty"><b>No spending in ${esc(monthLabel(ym))}</b>Scan a statement or add a transaction.</div>`;
+  if (!total && !totalB) return h + `<div class="empty"><b>No spending in ${esc(monthLabel(ym))}</b>Scan a statement or add a transaction.</div>` + specialYear(ym);
 
   if (withB.length) {
     const rows = withB.map(c => ({ c, v: spent[c.id] || 0, st: budgetStatus(spent[c.id] || 0, c.budget, frac) }))
@@ -435,6 +554,7 @@ function statsByCategory(ym, seg) {
     }).join('') + `</section>`;
   }
   h += dailySection(ym, withB);
+  h += specialYear(ym);
   if (unb.length) {
     h += `<section class="sec"><div class="sec-h"><h2>No budget set</h2><span class="muted" style="font-size:13px">Share of spending</span></div>` + unb.map(r => {
       const share = total ? Math.round(r.v / total * 100) : 0;
@@ -444,6 +564,37 @@ function statsByCategory(ym, seg) {
     }).join('') + `</section>`;
   }
   return h;
+}
+// Running total for the year of categories kept outside the monthly budget.
+function specialYear(ym) {
+  const oc = cats().filter(c => c.type === 'exp' && c.outside);
+  if (!oc.length) return '';
+  const y = ym.slice(0, 4), nowYm = ymOf(todayISO()), nowY = nowYm.slice(0, 4);
+  const upto = y < nowY ? 12 : y > nowY ? 0 : +nowYm.slice(5, 7);
+  const months = [], byCat = {};
+  let total = 0;
+  for (let m = 1; m <= 12; m++) {
+    const mym = y + '-' + pad(m); let v = 0;
+    monthTx(mym).forEach(t => { if (t.type === 'exp' && isOutside(t.cat)) { v += t.amt; byCat[t.cat] = (byCat[t.cat] || 0) + t.amt; } });
+    total += v;
+    months.push({ ym: mym, v: round2(v), cum: round2(total) });
+  }
+  const names = oc.map(c => c.name).join(', ');
+  let h = `<section class="sec" id="special"><div class="sec-h"><h2>Outside budget · ${esc(y)}</h2><span class="muted" style="font-size:13px">Running total</span></div>`;
+  if (total < 0.005) return h + `<p class="muted" style="font-size:14px;margin:0">Nothing in ${esc(names)} in ${esc(y)}${y === nowY ? ' so far' : ''}. Choose which categories sit outside the monthly budget in the Budget tab.</p></section>`;
+  h += `<div class="big">${money(total)} <small>in ${esc(y)}</small></div>`;
+  const split = oc.filter(c => byCat[c.id] > 0.004);
+  if (oc.length > 1 && split.length) h += `<div class="ct-cats">${split.map(c => `<span>${esc(c.name)} <b>${money(byCat[c.id], 0)}</b></span>`).join('')}</div>`;
+  const shownM = months.filter((r, i) => i < upto || r.v > 0.004);
+  h += `<div class="sp-head" style="margin-top:12px"><span></span><span></span><span>Month</span><span>Total</span></div>`;
+  h += shownM.map(r => {
+    const prev = r.cum - r.v;
+    return `<button class="sp-row${r.ym === ym ? ' cur' : ''}" data-act="drill-special" data-ym="${r.ym}" aria-label="${esc(monthLabel(r.ym))}: ${money(r.v)}, ${money(r.cum)} for the year so far">
+      <span class="sp-m">${esc(monthShort(r.ym))}</span>
+      <span class="sp-track"><span class="sp-fill" style="width:${(prev / total * 100).toFixed(1)}%"></span><span class="sp-add" style="left:${(prev / total * 100).toFixed(1)}%;width:${(r.v / total * 100).toFixed(1)}%"></span></span>
+      <span class="num sp-v">${r.v > 0.004 ? money(r.v, 0) : '–'}</span><span class="num sp-c">${money(r.cum, 0)}</span></button>`;
+  }).join('');
+  return h + `<p class="muted" style="font-size:12px;margin:8px 0 0">${esc(names)}. Counts toward your balances but not the monthly budget. Tap a month to see its entries.</p></section>`;
 }
 // Calendar of one budgeted category's daily spending, highlighting days above its daily allowance
 // (monthly budget spread evenly over the days of the month).
@@ -508,26 +659,44 @@ function statsByCard(ym, seg) {
 
 function vBudget() {
   const expCats = cats().filter(c => c.type === 'exp');
-  const total = expCats.reduce((s, c) => s + (c.budget > 0 ? c.budget : 0), 0);
+  const inB = expCats.filter(c => !c.outside);
+  const total = inB.reduce((s, c) => s + (c.budget > 0 ? c.budget : 0), 0);
   return `<section class="sec"><div class="sec-h"><h2>Monthly budgets</h2><span class="muted" style="font-size:13px">Same every month</span></div>
     <p class="muted" style="font-size:13px;margin:0 0 12px">How much you plan to spend in each category. Leave a box empty for no budget. Changes save as you go, and your progress shows on the Stats tab.</p>
-    <div class="bgt-edit">${expCats.map(c => `<label for="b-${esc(c.id)}">${esc(c.name)}</label>
+    <div class="bgt-edit">${inB.map(c => `<label for="b-${esc(c.id)}">${esc(c.name)}</label>
       <input class="in num" id="b-${esc(c.id)}" data-set="budget" data-id="${esc(c.id)}" inputmode="decimal" placeholder="No budget" value="${c.budget > 0 ? c.budget : ''}">`).join('')}
       <b class="bgt-total-l">Total per month</b><span class="num bgt-total" id="bgt-total">${money(total, 0)}</span>
     </div>
     <p class="muted" style="font-size:13px;margin:14px 0 0">Add, rename or remove categories in Settings.</p>
+  </section>
+  <section class="sec"><div class="sec-h"><h2>Outside the monthly budget</h2></div>
+    <p class="muted" style="font-size:13px;margin:0 0 12px">For one-off or big spending like flights or furniture. It still counts toward your card and account balances, but not toward monthly budgets or the run rate. Stats shows a running total for the year. Tap a category to move it in or out.</p>
+    <div class="chips wrap" role="group" aria-label="Categories outside the monthly budget">${expCats.map(c => `<button class="chip${c.outside ? ' on' : ''}" data-act="toggle-outside" data-id="${esc(c.id)}" aria-pressed="${c.outside ? 'true' : 'false'}">${esc(c.name)}</button>`).join('')}</div>
   </section>`;
 }
 
 function vCards() {
   const ym = S.month;
-  const list = accts();
+  const list = accts(), bals = balances();
   let h = '';
   if (!list.length) {
     h += `<div class="empty"><b>Add your cards</b>Each transaction is tagged to a card so you can see spending per card.</div>`;
   }
+  const ids = Object.keys(bals);
+  if (ids.length) {
+    let assets = 0, owed = 0;
+    ids.forEach(id => { const v = bals[id].v; if (isLiab(accById(id))) owed -= v; else assets += v; });
+    h += `<section class="sec"><div class="sec-h"><h2>Balances</h2><span class="muted" style="font-size:13px">As of today</span></div>
+      <div class="bal-sum">
+        <div><span>In your accounts</span><span class="num">${money(assets)}</span></div>
+        <div><span>Owed on cards</span><span class="num">${money(owed)}</span></div>
+        <div class="net"><span>Net</span><span class="num${assets - owed < 0 ? ' t-bad' : ''}">${money(assets - owed)}</span></div>
+      </div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">From the figures you entered from your bank apps, plus everything since. Update a card or account below to check it still matches.</p></section>`;
+  }
   h += list.map(a => {
-    const tx = monthTx(ym).filter(t => t.acc === a.id);
+    const b = bals[a.id];
+    const tx = monthTx(ym).filter(t => t.acc === a.id && (t.type === 'exp' || t.type === 'inc'));
     const tt = totals(tx);
     const byC = {}; tx.forEach(t => { if (t.type === 'exp') byC[t.cat] = (byC[t.cat] || 0) + t.amt; });
     const top = Object.entries(byC).filter(([, v]) => v > 0).sort((x, y) => y[1] - x[1]).slice(0, 3);
@@ -537,7 +706,8 @@ function vCards() {
       <div class="ct-amt">${money(tt.spent)}</div>
       <div class="ct-meta">${tx.length} transaction${tx.length === 1 ? '' : 's'} in ${esc(monthLabel(ym))}${tt.income ? ` · <span class="num">${money(tt.income)}</span> credited` : ''}</div>
       ${top.length ? `<div class="ct-cats">${top.map(([c, v]) => `<span>${esc(catName(c))} <b>${money(v, 0)}</b></span>`).join('')}</div>` : ''}
-      <div class="sheet-actions" style="margin-top:12px"><button class="btn small" data-act="drill-acc" data-id="${esc(a.id)}">View transactions</button><button class="btn small" data-act="edit-card" data-id="${esc(a.id)}">Edit</button></div>
+      ${b ? `<div class="ct-bal"><span class="k">${isLiab(a) ? 'Owed' : 'Balance'}</span><span class="v num">${money(shown(a, b.v))}</span><span class="m">Checked ${esc(fmtDate(b.cp.d))}</span></div>` : ''}
+      <div class="ct-acts"><button class="btn small" data-act="drill-acc" data-id="${esc(a.id)}">Transactions</button><button class="btn small" data-act="bal" data-id="${esc(a.id)}">${b ? 'Update balance' : 'Add balance'}</button><button class="btn small" data-act="edit-card" data-id="${esc(a.id)}">Edit</button></div>
     </div>`;
   }).join('');
   h += `<button class="btn wide primary" data-act="new-card">Add a card</button>`;
@@ -599,8 +769,11 @@ function vReview() {
   const notes = [];
   if (I.notes) notes.push(esc(I.notes));
   const pays = I.skipped.filter(x => x.kind !== 'topup'), tops = I.skipped.filter(x => x.kind === 'topup');
+  const xN = I.rows.filter(r => r.kind === 'xfer').length;
+  if (xN) notes.push(`${xN} card payment${xN === 1 ? ' or top-up is a transfer' : 's or top-ups are transfers'}: they move money between your accounts and don't count as spending.`);
   if (pays.length) notes.push(`Left out ${pays.length} card payment${pays.length === 1 ? '' : 's'} (<span class="num">${money(pays.reduce((s, p) => s + p.amount, 0))}</span>), since paying the bill isn't spending.`);
   if (tops.length) notes.push(`Left out ${tops.length} wallet top-up${tops.length === 1 ? '' : 's'}.`);
+  if ((pays.length || tops.length) && !Object.keys(balances()).length) notes.push('Add a balance in the Cards tab to record these as transfers.');
   if (dupN) notes.push(`${dupN} line${dupN === 1 ? ' looks' : 's look'} already recorded and ${dupN === 1 ? 'is' : 'are'} unticked.`);
   if (lowN) notes.push(`Categories shaded amber are ones the app didn't recognise.`);
   notes.push('Compare amounts with your screenshot before adding.');
@@ -638,8 +811,9 @@ function vSource() {
   return `<div class="src"><button class="btn ghost small" data-act="rv-src">${I.showSource ? 'Hide' : 'Show'} recognised text</button>${I.showSource ? `<pre class="num">${esc(I.source)}</pre>` : ''}</div>`;
 }
 function vRow(r, i) {
-  const type = r.kind === 'inc' ? 'inc' : 'exp';
+  const type = r.kind === 'inc' ? 'inc' : 'exp', isX = r.kind === 'xfer';
   const tags = [];
+  if (isX) tags.push('<span class="tag acc">Transfer, not spending</span>');
   if (r.dup === 'ledger') tags.push('<span class="tag warn">Already in ledger?</span>');
   if (r.dup === 'batch') tags.push('<span class="tag warn">Appears twice</span>');
   if (r.learned) tags.push('<span class="tag acc">Remembered</span>');
@@ -657,9 +831,10 @@ function vRow(r, i) {
       </div>
       <div class="rv-l2">
         <input class="in" type="date" data-f="d" value="${esc(r.d)}" aria-label="Date">
-        <select class="in" data-f="kind" aria-label="Type">${kindOptions(r.kind)}</select>
-        <select class="in${r.conf === 'low' && !r.learned ? ' unsure' : ''}" data-f="cat" aria-label="Category">${catOptions(type, r.cat)}</select>
+        <select class="in" data-f="kind" aria-label="Type">${kindOptions(r.kind, true)}</select>
+        ${isX ? '' : `<select class="in${r.conf === 'low' && !r.learned ? ' unsure' : ''}" data-f="cat" aria-label="Category">${catOptions(type, r.cat)}</select>`}
       </div>
+      ${isX ? `<div class="rv-l3"><label><span>From</span><select class="in${r.from ? '' : ' unsure'}" data-f="from">${pickOptions(r.from)}</select></label><label><span>To</span><select class="in${r.to ? '' : ' unsure'}" data-f="to">${pickOptions(r.to)}</select></label></div>` : ''}
       <div class="rv-meta">${tags.join('')}${r.raw ? `<span class="raw num">${esc(r.raw)}</span>` : ''}</div>
     </div></div>`;
 }
@@ -896,11 +1071,20 @@ const dayDiff = (a, b) => Math.abs((new Date(a + 'T00:00:00') - new Date(b + 'T0
 function buildRows(results, notes) {
   const I = S.imp;
   const rows = [], skipped = [], groups = [];
-  const today = todayISO();
+  const today = todayISO(), bals = balances();
   results.forEach((res, gi) => {
     const acc = res.found && accById(res.found.id) ? res.found.id : I.accountId;
-    groups.push({ label: res.label, thumb: res.thumb, acc, why: res.found ? res.found.why : '', auto: !!res.found && !res.found.inherited, inherited: !!(res.found && res.found.inherited), signals: res.signals, skipped: res.skipped });
-    skipped.push(...res.skipped);
+    const left = [];
+    // Card payments and top-ups come in as transfers once either side has a balance you track.
+    res.skipped.forEach(p => {
+      const a = accById(acc);
+      const dirIn = (p.kind === 'payment' && isLiab(a)) || (p.kind === 'topup' && a && a.kind === 'wallet') || !!p.credit;
+      const other = dirIn ? suggestFrom(acc) : suggestTo(acc, p.raw, p.kind);
+      if (!(p.amount > 0) || !(bals[acc] || bals[other])) { left.push(p); return; }
+      rows.push({ g: gi, sel: true, d: p.date || today, dateGuess: !p.date || p.dateGuessed, dateCarried: !!p.dateCarried, m: p.kind === 'topup' ? 'Top-up' : 'Card payment', raw: p.raw, amt: p.amount, kind: 'xfer', dir: dirIn ? 'in' : 'out', from: dirIn ? other : acc, to: dirIn ? acc : other, cat: fallbackCat('exp'), acc, conf: 'high', learned: false, fx: '', dup: false });
+    });
+    groups.push({ label: res.label, thumb: res.thumb, acc, why: res.found ? res.found.why : '', auto: !!res.found && !res.found.inherited, inherited: !!(res.found && res.found.inherited), signals: res.signals, skipped: left });
+    skipped.push(...left);
     res.transactions.forEach(t => {
       if (!(t.amount > 0)) return;
       const type = t.kind === 'inc' ? 'inc' : 'exp';
@@ -915,11 +1099,24 @@ function buildRows(results, notes) {
 // Unticks lines seen twice across overlapping screenshots, or already in the ledger
 // (same card and amount, same day, or within 3 days for pending charges that post later).
 function markDuplicates() {
-  const I = S.imp, seen = new Set();
+  const I = S.imp, seen = new Set(), xs = [];
   I.rows.forEach(r => {
     const wasDup = r.dup;
     r.dup = false;
     if (!(r.amt > 0) || !r.raw) { if (wasDup && !r.dup) r.sel = true; return; }
+    if (r.kind === 'xfer') {
+      // The same payment often shows on both the card and the bank screen, a few days apart.
+      const near = t => Math.abs(t.amt - r.amt) < 0.005 && dayDiff(t.d, r.d) <= 5;
+      if (xs.some(x => near(x) && x.from === r.from && x.to === r.to)) r.dup = 'batch';
+      else {
+        xs.push(r);
+        const months = [ymOf(r.d), addMonths(ymOf(r.d), -1), addMonths(ymOf(r.d), 1)];
+        if (months.some(ym => monthTx(ym).some(t => t.type === 'xfer' && near(t) && (r.dir === 'in' ? t.to === r.to : t.acc === r.from)))) r.dup = 'ledger';
+      }
+      if (r.dup && !wasDup) r.sel = false;
+      if (!r.dup && wasDup) r.sel = true;
+      return;
+    }
     const key5 = SnapParse.normKey(r.raw).slice(0, 5);
     const k = [r.acc, r.d, r.amt, r.kind, key5].join('|');
     if (seen.has(k)) r.dup = 'batch';
@@ -947,17 +1144,25 @@ function addBlankRow() {
 function approveRows() {
   const I = S.imp;
   let bad = 0;
-  I.rows.forEach(r => { r.invalid = r.sel && (!(r.amt > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(r.d) || !accById(r.acc) || !catById(r.cat)); if (r.invalid) bad++; });
-  if (bad) { render(); toast(`Fix ${bad} highlighted line${bad === 1 ? '' : 's'} first: each needs a date, an amount above zero, a card and a category.`); return; }
+  I.rows.forEach(r => {
+    const where = r.kind === 'xfer' ? accById(r.from) && accById(r.to) && r.from !== r.to : accById(r.acc) && catById(r.cat);
+    r.invalid = r.sel && (!(r.amt > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(r.d) || !where); if (r.invalid) bad++;
+  });
+  if (bad) { render(); toast(`Fix ${bad} highlighted line${bad === 1 ? '' : 's'} first: each needs a date, an amount above zero, and a card and category (or both accounts for a transfer).`); return; }
   const sel = I.rows.filter(r => r.sel);
   const touched = {}, count = {};
   const rules = st().rules || (st().rules = {});
   sel.forEach(r => {
     const ym = ymOf(r.d);
-    const m = (r.m || '').trim().slice(0, 60) || catName(r.cat);
     if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
-    mo()[ym].txns.push({ id: newId(), d: r.d, amt: round2(r.kind === 'ref' ? -r.amt : r.amt), type: r.kind === 'inc' ? 'inc' : 'exp', acc: r.acc, cat: r.cat, m, raw: r.raw, src: 'scan', t: Date.now() });
     touched[ym] = 1; count[ym] = (count[ym] || 0) + 1;
+    if (r.kind === 'xfer') {
+      mo()[ym].txns.push({ id: newId(), d: r.d, amt: round2(r.amt), type: 'xfer', acc: r.from, to: r.to, cat: '', m: (r.m || '').trim().slice(0, 60) || 'Transfer', raw: r.raw, src: 'scan', t: Date.now() });
+      rememberPayFrom(r.from, r.to);
+      return;
+    }
+    const m = (r.m || '').trim().slice(0, 60) || catName(r.cat);
+    mo()[ym].txns.push({ id: newId(), d: r.d, amt: round2(r.kind === 'ref' ? -r.amt : r.amt), type: r.kind === 'inc' ? 'inc' : 'exp', acc: r.acc, cat: r.cat, m, raw: r.raw, src: 'scan', t: Date.now() });
     const k = SnapParse.normKey(r.raw);
     if (k) { delete rules[k]; rules[k] = { c: r.cat, m }; }
   });
@@ -1010,12 +1215,12 @@ function welcomeSteps() {
   steps.push({
     icon: ICON.cards,
     title: 'Add your cards',
-    body: `<p>In <b>Cards</b>, add each card with its last 4 digits. This is how the app tells which card a screenshot is from.</p><ul><li>If a card's app shows more than 4 digits, enter the last 4.</li><li>For e-wallets, choose <b>E-wallet</b> and leave the digits empty.</li></ul>`
+    body: `<p>In <b>Cards</b>, add each card with its last 4 digits. This is how the app tells which card a screenshot is from.</p><ul><li>If a card's app shows more than 4 digits, enter the last 4.</li><li>For e-wallets, choose <b>E-wallet</b> and leave the digits empty.</li><li>To track what you have and owe, tap <b>Add balance</b> and copy the figure from your bank app. Update it now and then, and a correction keeps it matching.</li></ul>`
   });
   steps.push({
     icon: ICON.scan,
     title: 'Scan your transactions',
-    body: `<ul><li>Screenshot the transaction list in your bank app. Scroll and take more if it's long.</li><li>In <b>Scan</b>, add them all at once, top of the list first. Mixing cards is fine.</li><li>Check each line, fix anything off, then tap <b>Add</b>. Bill payments, balances and wallet top-ups are left out for you.</li></ul><p class="muted">Category fixes are remembered for next time.</p>`
+    body: `<ul><li>Screenshot the transaction list in your bank app. Scroll and take more if it's long.</li><li>In <b>Scan</b>, add them all at once, top of the list first. Mixing cards is fine.</li><li>Check each line, fix anything off, then tap <b>Add</b>. Balance lines are left out for you. Bill payments and top-ups come in as transfers once you track balances.</li></ul><p class="muted">Category fixes are remembered for next time.</p>`
   });
   steps.push({
     icon: ICON.stats,
@@ -1044,17 +1249,31 @@ function renderSheet() {
   const el = $('#sheet');
   if (s.kind === 'txn') {
     const t = s.id ? monthTx(s.ym).find(x => x.id === s.id) : null;
+    if (t && t.type === 'adj') {
+      const a = accById(t.acc), liab = isLiab(a);
+      el.innerHTML = `<div class="grab"></div><h2>${esc(t.m || 'Balance correction')}</h2>
+        <div class="kv"><span>${liab ? 'Card' : 'Account'}</span><span>${esc(accName(t.acc))}</span></div>
+        <div class="kv"><span>Date</span><span>${esc(dayLabel(t.d))}</span></div>
+        <div class="kv"><span>${liab ? 'Owed' : 'Balance'} you entered</span><span class="num">${money(shown(a, t.bal))}</span></div>
+        ${t.first ? '' : `<div class="kv"><span>Correction</span><span class="num">${esc(adjText(t))}</span></div>`}
+        <p class="muted" style="font-size:13px">Entered from your bank app. It isn't spending or income. Delete it and the balance goes back to the figure you entered before.</p>
+        <div class="sheet-actions"><button class="btn danger" data-act="del-tx">Delete</button><button class="btn" data-act="close-sheet">Close</button></div>`;
+      return;
+    }
     const k = t ? kindOf(t) : 'exp';
-    const type = k === 'inc' ? 'inc' : 'exp';
+    const type = k === 'inc' ? 'inc' : 'exp', isX = k === 'xfer';
     const defAcc = t ? t.acc : (S.filterAcc || (accts()[0] || {}).id);
+    const defTo = t && t.to ? t.to : suggestTo(defAcc);
     const defDate = t ? t.d : (S.month === ymOf(todayISO()) ? todayISO() : S.month + '-01');
-    el.innerHTML = `<div class="grab"></div><h2>${t ? 'Edit transaction' : 'New transaction'}</h2>
+    el.innerHTML = `<div class="grab"></div><h2>${t ? (isX ? 'Edit transfer' : 'Edit transaction') : 'New transaction'}</h2>
       ${accts().length ? '' : '<div class="err">Add a card first in the Cards tab.</div>'}
-      <div class="row2"><label class="field"><span>Type</span><select class="in" id="f-kind">${kindOptions(k)}</select></label>
+      <div class="row2"><label class="field"><span>Type</span><select class="in" id="f-kind">${kindOptions(k, accts().length > 1)}</select></label>
       <label class="field"><span>Amount</span><input class="in num" id="f-amt" inputmode="decimal" value="${t ? Math.abs(t.amt).toFixed(2) : ''}" placeholder="0.00"></label></div>
       <div class="row2"><label class="field"><span>Date</span><input class="in" id="f-date" type="date" value="${esc(defDate)}"></label>
-      <label class="field"><span>Card</span><select class="in" id="f-acc">${accOptions(defAcc)}</select></label></div>
-      <label class="field"><span>Category</span><select class="in" id="f-cat">${catOptions(type, t ? t.cat : (S.filterCat || firstCat(type)))}</select></label>
+      <label class="field"><span id="f-acc-l">${isX ? 'From' : 'Card'}</span><select class="in" id="f-acc">${accOptions(defAcc)}</select></label></div>
+      <label class="field" id="f-to-w"${isX ? '' : ' hidden'}><span>To</span><select class="in" id="f-to">${accOptions(defTo)}</select></label>
+      <p class="muted" id="f-x-note" style="font-size:13px;margin-top:-4px"${isX ? '' : ' hidden'}>A transfer moves money between your own accounts, like paying a card bill or topping up a wallet. It isn't spending.</p>
+      <label class="field" id="f-cat-w"${isX ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptions(type, t && t.cat ? t.cat : (S.filterCat || firstCat(type)))}</select></label>
       <label class="field"><span>Merchant or note</span><input class="in" id="f-m" value="${esc(t ? t.m : '')}" maxlength="60"></label>
       ${t && t.raw ? `<p class="raw num" style="margin:-4px 0 12px">Statement: ${esc(t.raw)}</p>` : ''}
       <div class="sheet-actions">${t ? '<button class="btn danger" data-act="del-tx">Delete</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="save-tx">Save</button></div>`;
@@ -1068,6 +1287,17 @@ function renderSheet() {
       <label class="field"><span>Words on its screen (optional)</span><input class="in" id="c-match" value="${esc(a ? a.match || '' : '')}" placeholder="e.g. a word from the app's header" maxlength="80"></label>
       <p class="muted" style="font-size:13px;margin-top:0">Screenshots are matched to a card by its last 4 digits, its name, or these words. If a card's app shows more than 4 digits, enter the last 4. E-wallets can go without digits.</p>
       <div class="sheet-actions">${a ? '<button class="btn danger" data-act="del-card">Delete</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="save-card">Save</button></div>`;
+  } else if (s.kind === 'bal') {
+    const a = accById(s.id); if (!a) { closeSheet(); return; }
+    const b = balances()[a.id], liab = isLiab(a);
+    el.innerHTML = `<div class="grab"></div><h2>${b ? 'Update balance' : 'Add a balance'}</h2>
+      <p class="muted" style="margin-top:-8px">${esc(accName(a.id))}</p>
+      ${b ? `<div class="kv"><span>Snap Ledger expects</span><span class="num">${money(shown(a, b.v))}</span></div>
+      <div class="kv"><span>Last checked</span><span>${esc(fmtDate(b.cp.d))}</span></div>` : ''}
+      <label class="field" style="margin-top:12px"><span>${liab ? 'Amount owed' : 'Balance'} in your bank app now</span><input class="in num" id="b-val" inputmode="decimal" placeholder="0.00" autocomplete="off"></label>
+      <p class="bal-diff" id="b-diff">${balDiffNote(a.id, NaN)}</p>
+      <p class="muted" style="font-size:13px">${b ? "If it doesn't match, a correction entry makes up the difference. " : `From now on, everything on this ${liab ? 'card' : 'account'} moves its balance. `}Entries dated before today that you add later are treated as already in this figure.${liab ? ' If the card is in credit, enter a minus amount.' : ''}</p>
+      <div class="sheet-actions">${b ? '<button class="btn danger" data-act="bal-stop">Stop tracking</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="bal-save">Save</button></div>`;
   } else if (s.kind === 'welcome') {
     renderWelcome(el, s);
   } else if (s.kind === 'settings') {
@@ -1108,18 +1338,25 @@ function saveTx() {
   if (!(amt > 0)) return toast('Enter an amount above zero.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return toast('Pick a date.');
   if (!accById(acc)) return toast('Add a card first in the Cards tab.');
-  const rec = { d, amt: round2(kind === 'ref' ? -amt : amt), type: kind === 'inc' ? 'inc' : 'exp', acc, cat, m: m.slice(0, 60) };
+  let rec;
+  if (kind === 'xfer') {
+    const to = $('#f-to').value;
+    if (!accById(to) || to === acc) return toast('Pick two different accounts for a transfer.');
+    rec = { d, amt: round2(amt), type: 'xfer', acc, to, cat: '', m: m.slice(0, 60) || 'Transfer' };
+    rememberPayFrom(acc, to); saveSettings();
+  } else rec = { d, amt: round2(kind === 'ref' ? -amt : amt), type: kind === 'inc' ? 'inc' : 'exp', acc, cat, m: m.slice(0, 60) };
+  const apply = o => { Object.assign(o, rec); if (rec.type !== 'xfer') delete o.to; return o; };
   const ym = ymOf(d);
   if (s.id) {
     const old = monthTx(s.ym).find(x => x.id === s.id);
     if (!old) { closeSheet(); return; }
-    if (s.ym === ym) { Object.assign(old, rec); saveMonth(ym); }
+    if (s.ym === ym) { apply(old); saveMonth(ym); }
     else {
       mo()[s.ym].txns = monthTx(s.ym).filter(x => x.id !== s.id); saveMonth(s.ym);
       if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
-      mo()[ym].txns.push(Object.assign(old, rec)); saveMonth(ym);
+      mo()[ym].txns.push(apply(old)); saveMonth(ym);
     }
-    if (old.raw) { const k = SnapParse.normKey(old.raw); if (k) { const r = st().rules || (st().rules = {}); delete r[k]; r[k] = { c: cat, m: rec.m }; saveSettings(); } }
+    if (old.raw && rec.type !== 'xfer') { const k = SnapParse.normKey(old.raw); if (k) { const r = st().rules || (st().rules = {}); delete r[k]; r[k] = { c: cat, m: rec.m }; saveSettings(); } }
   } else {
     if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
     mo()[ym].txns.push(Object.assign({ id: newId(), raw: '', src: 'manual', t: Date.now() }, rec)); saveMonth(ym);
@@ -1139,10 +1376,11 @@ function saveCard() {
 async function exportCsv() {
   if (S.demo) { toast('Start your ledger first. The example data has nothing to export.'); return; }
   const q = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const rows = [['Date', 'Card', 'Category', 'Merchant', 'Amount', 'Type', 'Statement text']];
+  const rows = [['Date', 'Card', 'Category', 'Merchant', 'Amount', 'Type', 'Statement text', 'To card', 'Balance entered']];
+  const typeL = { inc: 'Income', ref: 'Refund', exp: 'Expense', xfer: 'Transfer', adj: 'Balance correction' };
   Object.keys(mo()).sort().forEach(ym => monthTx(ym).slice().sort((a, b) => a.d.localeCompare(b.d)).forEach(t => {
     const k = kindOf(t);
-    rows.push([t.d, accName(t.acc), catName(t.cat), t.m, t.amt.toFixed(2), k === 'inc' ? 'Income' : k === 'ref' ? 'Refund' : 'Expense', t.raw || '']);
+    rows.push([t.d, accName(t.acc), t.cat ? catName(t.cat) : '', t.m, t.amt.toFixed(2), typeL[k], t.raw || '', t.to ? accName(t.to) : '', k === 'adj' ? shown(accById(t.acc), t.bal).toFixed(2) : '']);
   }));
   await shareFile('snap-ledger-' + todayISO() + '.csv', rows.map(r => r.map(q).join(',')).join('\n'), 'text/csv');
 }
@@ -1191,10 +1429,30 @@ document.addEventListener('click', e => {
     case 'edit-card': openSheet({ kind: 'card', id }); break;
     case 'save-card': saveCard(); break;
     case 'del-card': {
-      const s = S.sheet; const n = Object.values(mo()).reduce((c, m) => c + ((m && m.txns) || []).filter(t => t.acc === s.id).length, 0);
+      const s = S.sheet; const n = Object.values(mo()).reduce((c, m) => c + ((m && m.txns) || []).filter(t => t.acc === s.id || t.to === s.id).length, 0);
       if (n) { toast(`This card has ${n} transaction${n === 1 ? '' : 's'}. Move or delete them first.`); break; }
       if (b.dataset.armed) { st().accounts = accts().filter(a => a.id !== s.id); saveSettings(); closeSheet(); render(); toast('Card deleted.'); }
       else { b.dataset.armed = '1'; b.textContent = 'Tap again to delete'; }
+      break;
+    }
+    case 'bal': openSheet({ kind: 'bal', id }); setTimeout(() => { const i = $('#b-val'); if (i) i.focus(); }, 50); break;
+    case 'bal-save': saveBalance(); break;
+    case 'bal-stop':
+      if (b.dataset.armed) {
+        const acc = S.sheet.id;
+        Object.keys(mo()).forEach(ym => { const n = monthTx(ym).length; mo()[ym].txns = monthTx(ym).filter(t => !(t.type === 'adj' && t.acc === acc)); if (mo()[ym].txns.length !== n) saveMonth(ym); });
+        closeSheet(); render(); toast('Stopped tracking this balance.');
+      } else { b.dataset.armed = '1'; b.textContent = 'Tap again to stop'; }
+      break;
+    case 'toggle-outside': {
+      const c = catById(id); if (!c) break;
+      c.outside = !c.outside; saveSettings(); render();
+      toast(c.outside ? `${c.name} is now outside the monthly budget.` : `${c.name} is back in the monthly budget.`);
+      break;
+    }
+    case 'drill-special': {
+      const oc = cats().filter(c => c.type === 'exp' && c.outside);
+      S.month = b.dataset.ym; S.filterCat = oc.length === 1 ? oc[0].id : null; S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0);
       break;
     }
     case 'budget-edit': S.budgetEdit = true; render(); break;
@@ -1249,7 +1507,15 @@ function onField(e, isChange) {
     return;
   }
   if (el.id === 'imp-file' && isChange) { addFiles(el.files); el.value = ''; return; }
+  if (el.id === 'b-val') { const d = $('#b-diff'); if (d && S.sheet) d.innerHTML = balDiffNote(S.sheet.id, parseAmt(el.value)); return; }
+  if (el.id === 'f-acc' && isChange && $('#f-kind') && $('#f-kind').value === 'xfer') {
+    const to = $('#f-to'); if (to && to.value === el.value) { const g = suggestTo(el.value); if (g) to.value = g; }
+    return;
+  }
   if (el.id === 'f-kind' && isChange) {
+    const x = el.value === 'xfer';
+    $('#f-to-w').hidden = !x; $('#f-x-note').hidden = !x; $('#f-cat-w').hidden = x; $('#f-acc-l').textContent = x ? 'From' : 'Card';
+    if (x) { const to = $('#f-to'), from = $('#f-acc'); if (to.value === from.value) { const g = suggestTo(from.value); if (g) to.value = g; } return; }
     const type = el.value === 'inc' ? 'inc' : 'exp', cs = $('#f-cat');
     const keep = catById(cs.value) && catById(cs.value).type === type ? cs.value : firstCat(type);
     cs.innerHTML = catOptions(type, keep); return;
@@ -1260,7 +1526,7 @@ function onField(e, isChange) {
       const v = parseAmt(el.value); c.budget = v > 0 ? round2(v) : null;
       el.value = c.budget ? c.budget : '';
       saveSettings();
-      const t = $('#bgt-total'); if (t) t.textContent = money(cats().filter(x => x.type === 'exp').reduce((s, x) => s + (x.budget > 0 ? x.budget : 0), 0), 0);
+      const t = $('#bgt-total'); if (t) t.textContent = money(cats().filter(x => x.type === 'exp' && !x.outside).reduce((s, x) => s + (x.budget > 0 ? x.budget : 0), 0), 0);
       return;
     }
     if (el.dataset.set === 'cur') { st().cur = el.value.trim().slice(0, 4) || 'S$'; saveSettings(); render(); }
@@ -1270,7 +1536,7 @@ function onField(e, isChange) {
   if (el.classList && el.classList.contains('grp-acc') && isChange) {
     const gi = +el.dataset.g, g = S.imp.groups[gi]; if (!g) return;
     g.acc = el.value; g.auto = true; g.inherited = false; g.why = 'your choice';
-    S.imp.rows.forEach(r => { if (r.g === gi) r.acc = el.value; });
+    S.imp.rows.forEach(r => { if (r.g !== gi) return; r.acc = el.value; if (r.kind === 'xfer') { if (r.dir === 'in') r.to = el.value; else r.from = el.value; } });
     markDuplicates();
     $('#rv-list').innerHTML = vGroups(); const foot = $('#rv-foot'); if (foot) foot.innerHTML = vFoot();
     return;
@@ -1281,7 +1547,7 @@ function onField(e, isChange) {
     S.imp.rows.forEach(r => {
       if (!r.sel) return;
       if (el.id === 'bulk-acc') { r.acc = v; n++; }
-      else if (r.kind !== 'inc') { r.cat = v; r.conf = 'high'; r.learned = false; n++; }
+      else if (r.kind !== 'inc' && r.kind !== 'xfer') { r.cat = v; r.conf = 'high'; r.learned = false; n++; }
     });
     $('#rv-list').innerHTML = vGroups(); el.value = '';
     toast(`Updated ${n} ticked line${n === 1 ? '' : 's'}.`);
@@ -1293,11 +1559,19 @@ function onField(e, isChange) {
   else if (f === 'amt') { r.amt = Math.abs(parseAmt(el.value)); }
   else if (f === 'kind') {
     if (!isChange) return;
-    r.kind = el.value; const type = r.kind === 'inc' ? 'inc' : 'exp';
+    const prev = r.kind; r.kind = el.value;
+    if (r.kind === 'xfer' && prev !== 'xfer') {
+      // Money out of this card or account (an expense line) goes to another. Money in came from one.
+      r.dir = prev === 'exp' ? 'out' : 'in';
+      const other = r.dir === 'in' ? suggestFrom(r.acc) : suggestTo(r.acc, r.raw || '', 'payment');
+      r.from = r.dir === 'in' ? other : r.acc; r.to = r.dir === 'in' ? r.acc : other;
+    }
+    const type = r.kind === 'inc' ? 'inc' : 'exp';
     if (!catById(r.cat) || catById(r.cat).type !== type) r.cat = type === 'inc' ? (catById('cashback') ? 'cashback' : firstCat('inc')) : (catById('other') ? 'other' : firstCat('exp'));
     row.outerHTML = vRow(r, +row.dataset.i);
   }
   else if (f === 'cat') { r.cat = el.value; r.conf = 'high'; el.classList.remove('unsure'); }
+  else if (f === 'from' || f === 'to') { r[f] = el.value; el.classList.toggle('unsure', !el.value); }
   else r[f] = el.value;
   if (r.invalid) { r.invalid = false; const rr = document.querySelector(`.rv[data-i="${row.dataset.i}"]`); if (rr) rr.classList.remove('invalid'); }
   const foot = $('#rv-foot'); if (foot) foot.innerHTML = vFoot();

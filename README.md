@@ -32,6 +32,20 @@ more than 4 digits, enter the last 4). For an e-wallet, choose **E-wallet** and
 leave the digits empty. You can then add screenshots from all
 your cards in one go, and the app works out which card each screenshot belongs to.
 
+## Balances and transfers
+
+To track what you have and owe, tap **Add balance** on a card or account and copy the
+figure from your bank app. From then on, spending, income and transfers move the
+balance. Update it now and then, and a correction entry makes up any difference so it
+matches your bank again. Card payments and wallet top-ups are transfers: they move
+money between your own accounts and never count as spending.
+
+## Spending outside the monthly budget
+
+In the **Budget** tab, mark categories that sit outside the monthly budget (Special
+Spending is one by default). They still count toward balances, and Stats shows a
+running total for the year instead.
+
 ## Your data
 
 Everything is stored on the phone. Use **Settings > Back up now** from time to time
