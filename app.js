@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.7.2';
+const APP_VERSION = '1.8.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1205,7 +1205,7 @@ function approveRows() {
   S.tab = 'ledger'; S.month = topYm; S.filterAcc = null; S.filterCat = null;
   render();
   window.scrollTo(0, 0);
-  toast(`Added ${sel.length} transaction${sel.length === 1 ? '' : 's'}${S.demo ? ' to the example ledger (not saved)' : ''}.`);
+  celebrate(`+${sel.length} added${S.demo ? ' (example)' : ''}`, `Added ${sel.length} transaction${sel.length === 1 ? '' : 's'}${S.demo ? ' to the example ledger (not saved)' : ''}.`);
 }
 function resetImport() {
   S.imp.files.forEach(f => { if (f.url) try { URL.revokeObjectURL(f.url); } catch (e) {} });
@@ -1340,6 +1340,7 @@ function renderSheet() {
       <div class="sheet-actions"><button class="btn" data-act="backup">Back up now</button><label class="btn" for="restore-file">Restore backup</label></div>
       <button class="btn wide" data-act="export" style="margin-top:10px">Export all as CSV</button>
       <div class="sub-h">Display</div>
+      <label class="tgl"><input type="checkbox" data-set="bunny"${st().bunny === false ? '' : ' checked'}><span>Bunny celebration when you add entries</span></label>
       <label class="field"><span>Currency symbol</span><input class="in" data-set="cur" value="${esc(cur())}" maxlength="4" style="max-width:120px"></label>
       <div class="sub-h">Expense categories</div><p class="muted" style="font-size:13px;margin:-4px 0 8px">Use the arrows to set the order they appear in across the app.</p><div class="cat-list">${cats().filter(c => c.type === 'exp').map(catRow).join('')}</div>
       <div class="sub-h">Income categories</div><div class="cat-list">${cats().filter(c => c.type === 'inc').map(catRow).join('')}</div>
@@ -1387,7 +1388,8 @@ function saveTx() {
     if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
     mo()[ym].txns.push(Object.assign({ id: newId(), raw: '', src: 'manual', t: Date.now() }, rec)); saveMonth(ym);
   }
-  closeSheet(); render(); toast('Saved.');
+  closeSheet(); render();
+  if (s.id) toast('Saved.'); else celebrate('+1 added', 'Saved.');
 }
 function saveCard() {
   const name = $('#c-name').value.trim(), l4 = $('#c-l4').value.replace(/\D/g, '').slice(-4), kind = $('#c-kind').value, match = $('#c-match').value.trim().slice(0, 80);
@@ -1414,6 +1416,47 @@ async function exportCsv() {
 /* ---------- toast ---------- */
 let toastT;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 3200); }
+
+/* ---------- celebration ----------
+   A bunny hops up, jumps for joy with a burst of confetti, shows how many entries went in, and hops
+   away. Pure CSS and SVG, never blocks a tap. Off in Settings, and replaced by a plain message when
+   the phone asks for reduced motion. */
+const BUNNY_SVG = `<svg viewBox="0 0 120 140" width="104" height="121">
+  <g class="bn-ear l"><ellipse class="fur" cx="45" cy="30" rx="10" ry="27"/><ellipse class="in" cx="45" cy="33" rx="4.6" ry="17"/></g>
+  <g class="bn-ear r"><ellipse class="fur" cx="75" cy="30" rx="10" ry="27"/><ellipse class="in" cx="75" cy="33" rx="4.6" ry="17"/></g>
+  <ellipse class="fur" cx="60" cy="106" rx="33" ry="28"/>
+  <ellipse class="belly" cx="60" cy="111" rx="18" ry="15"/>
+  <ellipse class="fur" cx="44" cy="131" rx="11" ry="6"/><ellipse class="fur" cx="76" cy="131" rx="11" ry="6"/>
+  <circle class="fur" cx="60" cy="68" r="29"/>
+  <ellipse class="ck" cx="41" cy="76" rx="6" ry="4"/><ellipse class="ck" cx="79" cy="76" rx="6" ry="4"/>
+  <g class="bn-eyes open"><circle cx="50" cy="66" r="4"/><circle cx="70" cy="66" r="4"/><circle class="hl" cx="51.4" cy="64.6" r="1.3"/><circle class="hl" cx="71.4" cy="64.6" r="1.3"/></g>
+  <g class="bn-eyes happy"><path d="M45.5 67.5q4.5-5.5 9 0"/><path d="M65.5 67.5q4.5-5.5 9 0"/></g>
+  <path class="ns" d="M56.8 73.2h6.4a.8.8 0 0 1 .6 1.3l-3.2 3.1a.9.9 0 0 1-1.2 0l-3.2-3.1a.8.8 0 0 1 .6-1.3z"/>
+  <path class="mo" d="M60 77.6v1.6M60 79.2q-2.6 2.6-5 .6M60 79.2q2.6 2.6 5 .6"/>
+  <ellipse class="fur pw" cx="49" cy="99" rx="6.5" ry="5"/><ellipse class="fur pw" cx="71" cy="99" rx="6.5" ry="5"/>
+</svg>`;
+let bunnyT;
+function celebrate(label, fallback) {
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce || (st() && st().bunny === false)) { if (fallback) toast(fallback); return; }
+  const old = document.querySelector('.bn-fx'); if (old) old.remove();
+  clearTimeout(bunnyT); $('#toast').hidden = true;
+  const colors = ['var(--accent)', '#FF8FAB', '#F2C14E', '#52C48E', '#9B8CFF', '#FF9F5A'];
+  const shapes = ['dot', 'bar', 'star'];
+  let bits = '';
+  for (let i = 0; i < 16; i++) {
+    // Mostly up and outwards, like a pop of joy; a few fall sideways.
+    const a = (-172 + i * (164 / 15) + (Math.random() * 10 - 5)) * Math.PI / 180, d = 58 + Math.random() * 44;
+    bits += `<i class="bn-bit ${shapes[i % 3]}" style="--x:${(Math.cos(a) * d).toFixed(1)}px;--y:${(Math.sin(a) * d).toFixed(1)}px;--r:${Math.round(Math.random() * 360 - 180)}deg;--c:${colors[i % colors.length]};animation-delay:${620 + Math.round(Math.random() * 70)}ms"></i>`;
+  }
+  const sparks = [[-62, -18, 980], [58, -34, 1080], [-40, -70, 1180]].map(([x, y, t]) => `<i class="bn-spark" style="--x:${x}px;--y:${y}px;animation-delay:${t}ms"></i>`).join('');
+  const el = document.createElement('div');
+  el.className = 'bn-fx'; el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = `<div class="bn-halo"></div><div class="bn-badge">${esc(label)}</div><div class="bn-burst">${bits}${sparks}</div><div class="bn-shadow"></div><div class="bn-move"><div class="bn-squash">${BUNNY_SVG}</div></div>`;
+  document.body.appendChild(el);
+  const live = $('#toast'); live.textContent = fallback || label; // screen readers still hear it
+  bunnyT = setTimeout(() => el.remove(), 2100);
+}
 
 /* ---------- events ---------- */
 document.addEventListener('click', e => {
@@ -1567,6 +1610,7 @@ function onField(e, isChange) {
       const t = $('#bgt-total'); if (t) t.textContent = money(cats().filter(x => x.type === 'exp' && !x.outside).reduce((s, x) => s + (x.budget > 0 ? x.budget : 0), 0), 0);
       return;
     }
+    if (el.dataset.set === 'bunny') { st().bunny = el.checked; saveSettings(); if (el.checked) celebrate('Hello!'); return; }
     if (el.dataset.set === 'cur') { st().cur = el.value.trim().slice(0, 4) || 'S$'; saveSettings(); render(); }
     if (el.dataset.set === 'catname') { const c = catById(el.dataset.id); const v = el.value.trim(); if (c && v) { c.name = v.slice(0, 32); saveSettings(); render(); } }
     return;
@@ -1650,5 +1694,5 @@ async function boot() {
   }
 }
 boot();
-if (/[?&]debug\b/.test(location.search)) window.__snap = { prepImage, tsvToText, initOcr, ocrCall: (m, t) => ocrCall(m, t), S };
+if (/[?&]debug\b/.test(location.search)) window.__snap = { prepImage, tsvToText, initOcr, ocrCall: (m, t) => ocrCall(m, t), S, celebrate };
 })();
