@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -946,7 +946,55 @@ function resetImport() {
 
 /* ---------- sheets ---------- */
 function openSheet(s) { S.sheet = s; renderSheet(); $('#sheet-wrap').hidden = false; $('#sheet').scrollTop = 0; }
-function closeSheet() { S.sheet = null; $('#sheet-wrap').hidden = true; $('#sheet').innerHTML = ''; }
+function closeSheet() { if (S.sheet && S.sheet.kind === 'welcome') lsSet('snapledger:welcomed', '1'); S.sheet = null; $('#sheet-wrap').hidden = true; $('#sheet').innerHTML = ''; }
+
+/* ---------- first-run guide ---------- */
+function isStandalone() { try { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; } catch (e) { return false; } }
+function isIOS() { return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+const SHARE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>';
+function welcomeSteps() {
+  const steps = [{
+    icon: '<img src="icons/cards-180.png" alt="">',
+    title: 'Welcome to Snap Ledger',
+    body: `<p>Turn screenshots from your banking apps into a tidy expense ledger, and see at a glance whether you're keeping to your budget.</p><p class="muted">Everything is read and stored on this phone. Nothing is uploaded.</p>`
+  }];
+  if (isIOS() && !isStandalone()) steps.push({
+    icon: SHARE_SVG,
+    title: 'Add it to your Home Screen first',
+    body: `<ol><li>Tap the <b>Share</b> button in Safari.</li><li>Choose <b>Add to Home Screen</b>.</li><li>Open Snap Ledger from the new icon and carry on there.</li></ol><p class="muted">The Home Screen app keeps its own data, separate from Safari, so start your ledger there.</p>`
+  });
+  steps.push({
+    icon: ICON.cards,
+    title: 'Add your cards',
+    body: `<p>In <b>Cards</b>, add each card with its last 4 digits. This is how the app tells which card a screenshot is from.</p><ul><li>If a card's app shows more than 4 digits, enter the last 4.</li><li>For e-wallets, choose <b>E-wallet</b> and leave the digits empty.</li></ul>`
+  });
+  steps.push({
+    icon: ICON.scan,
+    title: 'Scan your transactions',
+    body: `<ul><li>Screenshot the transaction list in your bank app. Scroll and take more if it's long.</li><li>In <b>Scan</b>, add them all at once, top of the list first. Mixing cards is fine.</li><li>Check each line, fix anything off, then tap <b>Add</b>. Bill payments, balances and wallet top-ups are left out for you.</li></ul><p class="muted">Category fixes are remembered for next time.</p>`
+  });
+  steps.push({
+    icon: ICON.stats,
+    title: 'Set budgets and track',
+    body: `<p>Set a monthly amount per category in <b>Budget</b>. <b>Stats</b> then shows each one as <b class="t-good">On track</b>, <b class="t-warn">At risk</b> (above today's pace) or <b class="t-bad">Over</b>.</p><p class="muted">Your data lives only on this phone, so use Settings → Back up now from time to time.</p>`
+  });
+  return steps;
+}
+function renderWelcome(el, s) {
+  const steps = welcomeSteps();
+  const i = Math.max(0, Math.min(steps.length - 1, s.step || 0)), stp = steps[i], last = i === steps.length - 1;
+  const startLabel = S.demo ? 'Start my ledger' : 'Done';
+  el.innerHTML = `<div class="grab"></div>
+    <div class="wl">
+      <div class="wl-icon${i === 0 ? ' app' : ''}">${stp.icon}</div>
+      <p class="wl-step">${i + 1} of ${steps.length}</p>
+      <h2>${stp.title}</h2>
+      <div class="wl-body">${stp.body}</div>
+      <div class="wl-dots" aria-hidden="true">${steps.map((_, k) => `<span class="${k === i ? 'on' : ''}"></span>`).join('')}</div>
+    </div>
+    <div class="sheet-actions">${i ? '<button class="btn" data-act="wl-back">Back</button>' : '<button class="btn" data-act="wl-skip">Skip</button>'}${last ? `<button class="btn primary" data-act="wl-start">${startLabel}</button>` : '<button class="btn primary" data-act="wl-next">Next</button>'}</div>
+    ${last && S.demo ? '<button class="btn ghost wide" data-act="wl-skip" style="margin-top:6px">Look around the example first</button>' : ''}`;
+}
 function renderSheet() {
   const s = S.sheet; if (!s) return;
   const el = $('#sheet');
@@ -976,6 +1024,8 @@ function renderSheet() {
       <label class="field"><span>Words on its screen (optional)</span><input class="in" id="c-match" value="${esc(a ? a.match || '' : '')}" placeholder="e.g. a word from the app's header" maxlength="80"></label>
       <p class="muted" style="font-size:13px;margin-top:0">Screenshots are matched to a card by its last 4 digits, its name, or these words. If a card's app shows more than 4 digits, enter the last 4. E-wallets can go without digits.</p>
       <div class="sheet-actions">${a ? '<button class="btn danger" data-act="del-card">Delete</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="save-card">Save</button></div>`;
+  } else if (s.kind === 'welcome') {
+    renderWelcome(el, s);
   } else if (s.kind === 'settings') {
     const ruleN = Object.keys(st().rules || {}).length;
     const all = txCount();
@@ -996,6 +1046,7 @@ function renderSheet() {
       <div class="row2" style="grid-template-columns:1fr 110px auto"><input class="in" id="new-cat" placeholder="New category" maxlength="32"><select class="in" id="new-cat-type"><option value="exp">Expense</option><option value="inc">Income</option></select><button class="btn small" data-act="add-cat" style="height:44px">Add</button></div>
       <div class="sub-h">Scanning</div>
       <div class="kv"><span>Remembered merchants</span><span>${ruleN} ${ruleN ? '<button class="btn ghost small" data-act="clear-rules">Forget all</button>' : ''}</span></div>
+      <button class="btn wide" data-act="wl-open" style="margin-top:4px">How Snap Ledger works</button>
       <p class="muted" style="font-size:13px">Snap Ledger ${APP_VERSION}. Works offline. Screenshots and statements are read on this phone and never uploaded.</p>
       <div class="sheet-actions" style="margin-top:12px"><button class="btn wide" data-act="close-sheet">Done</button></div>`;
   } else if (s.kind === 'restore') {
@@ -1067,6 +1118,11 @@ document.addEventListener('click', e => {
     case 'goto-month': S.month = b.dataset.ym; render(); break;
     case 'settings': openSheet({ kind: 'settings' }); break;
     case 'close-sheet': closeSheet(); break;
+    case 'wl-next': S.sheet.step = (S.sheet.step || 0) + 1; renderSheet(); $('#sheet').scrollTop = 0; break;
+    case 'wl-back': S.sheet.step = Math.max(0, (S.sheet.step || 0) - 1); renderSheet(); $('#sheet').scrollTop = 0; break;
+    case 'wl-skip': closeSheet(); break;
+    case 'wl-start': { const demo = S.demo; closeSheet(); if (demo) startLedger(); break; }
+    case 'wl-open': openSheet({ kind: 'welcome', step: 0 }); break;
     case 'start': startLedger(); break;
     case 'filter-acc': S.filterAcc = id && id !== S.filterAcc ? id : null; render(); break;
     case 'filter-cat': S.filterCat = id && id !== S.filterCat ? id : null; render(); break;
@@ -1214,6 +1270,7 @@ document.addEventListener('paste', e => {
 async function boot() {
   render();
   await Store.init();
+  if (S.demo && S.mode === 'device' && !lsGet('snapledger:welcomed')) openSheet({ kind: 'welcome', step: 0 });
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
