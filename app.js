@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.1.3';
+const APP_VERSION = '1.2.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -277,8 +277,8 @@ const firstCat = type => (cats().find(c => c.type === type) || {}).id || '';
 
 /* ---------- render: chrome ---------- */
 function renderTop() {
-  if (S.tab === 'import') {
-    $('#top').innerHTML = `<span></span><div class="top-title">Scan a statement</div><button class="icon-btn" data-act="settings" aria-label="Settings">${ICON.gear}</button>`;
+  if (S.tab === 'import' || S.tab === 'budget') {
+    $('#top').innerHTML = `<span></span><div class="top-title">${S.tab === 'import' ? 'Scan a statement' : 'Budgets'}</div><button class="icon-btn" data-act="settings" aria-label="Settings">${ICON.gear}</button>`;
     return;
   }
   $('#top').innerHTML = `<span class="brand" aria-hidden="true"></span>
@@ -313,7 +313,7 @@ function render() {
 }
 function onData() {
   if (S.tab === 'import' && S.imp.status !== 'idle') { renderBanner(); return; }
-  if (S.tab === 'budget' && S.budgetEdit) { renderBanner(); return; }
+  if (S.tab === 'budget') { renderBanner(); return; }
   render();
 }
 
@@ -359,43 +359,8 @@ function vLedger() {
 
 function vStats() {
   const ym = S.month;
-  let rows = [];
-  if (S.statsBy === 'cat') {
-    const m = spendByCat(ym);
-    rows = Object.entries(m).filter(([, v]) => v > 0.004).map(([id, v]) => ({ id, name: catName(id), v, budget: (catById(id) || {}).budget || 0 }));
-  } else {
-    const m = spendByAcc(ym);
-    rows = Object.entries(m).filter(([, v]) => v > 0.004).map(([id, v]) => ({ id, name: accName(id), v, budget: 0 }));
-  }
-  rows.sort((a, b) => b.v - a.v);
-  const total = rows.reduce((s, r) => s + r.v, 0);
-  let h = `<section class="sec"><div class="sec-h"><h2>Spending</h2>
-    <div class="seg" role="group" aria-label="Group by"><button class="${S.statsBy === 'cat' ? 'on' : ''}" data-act="stats-by" data-by="cat">Category</button><button class="${S.statsBy === 'acc' ? 'on' : ''}" data-act="stats-by" data-by="acc">Card</button></div></div>
-    <div class="big">${money(total)} <small>in ${esc(monthLabel(ym))}</small></div>
-    <p class="muted" style="font-size:13px;margin:6px 0 0">${S.statsBy === 'cat' ? 'Each bar fills up to its own monthly budget.' : 'Each bar is that card\'s share of this month\'s spending.'}</p>`;
-  if (!rows.length) h += `<p class="muted">No spending recorded this month.</p>`;
-  h += `<div style="margin-top:8px">` + rows.map(r => {
-    const share = total ? Math.round(r.v / total * 100) : 0;
-    const act = S.statsBy === 'cat' ? 'drill-cat' : 'drill-acc';
-    if (S.statsBy === 'cat' && r.budget) {
-      const used = Math.round(r.v / r.budget * 100), over = r.v > r.budget + 0.004;
-      return `<button class="bar-row" data-act="${act}" data-id="${esc(r.id)}" aria-label="${esc(r.name)}: ${money(r.v)}, ${used}% of its ${money(r.budget, 0)} budget">
-        <div class="bar-top"><span class="bar-name">${esc(r.name)}</span><span class="bar-val">${money(r.v)}<small>${used}% of budget</small></span></div>
-        <div class="track"><div class="fill${over ? ' bad' : ''}" style="width:${Math.min(100, r.v / r.budget * 100).toFixed(1)}%"></div></div>
-        <div class="bar-sub"><span>Budget ${money(r.budget, 0)}</span><span>${over ? 'Over by ' + money(r.v - r.budget, 0) : money(r.budget - r.v, 0) + ' left'}</span></div>
-      </button>`;
-    }
-    if (S.statsBy === 'cat') {
-      return `<button class="bar-row" data-act="${act}" data-id="${esc(r.id)}" aria-label="${esc(r.name)}: ${money(r.v)}, no budget set">
-        <div class="bar-top"><span class="bar-name">${esc(r.name)}</span><span class="bar-val">${money(r.v)}<small>${share}% of spending</small></span></div>
-        <div class="bar-sub" style="margin-top:0"><span>No budget set</span><span></span></div>
-      </button>`;
-    }
-    return `<button class="bar-row" data-act="${act}" data-id="${esc(r.id)}" aria-label="${esc(r.name)}: ${money(r.v)}, ${share}% of spending">
-      <div class="bar-top"><span class="bar-name">${esc(r.name)}</span><span class="bar-val">${money(r.v)}<small>${share}%</small></span></div>
-      <div class="track"><div class="fill" style="width:${share}%"></div></div>
-    </button>`;
-  }).join('') + `</div></section>`;
+  const seg = `<div class="seg" role="group" aria-label="Group by"><button class="${S.statsBy === 'cat' ? 'on' : ''}" data-act="stats-by" data-by="cat">Category</button><button class="${S.statsBy === 'acc' ? 'on' : ''}" data-act="stats-by" data-by="acc">Card</button></div>`;
+  let h = S.statsBy === 'cat' ? statsByCategory(ym, seg) : statsByCard(ym, seg);
 
   const months = []; for (let k = -5; k <= 0; k++) months.push(addMonths(ym, k));
   const vals = months.map(m => Object.values(spendByCat(m)).reduce((s, v) => s + v, 0));
@@ -410,52 +375,83 @@ function vStats() {
   </section>`;
   return h;
 }
-
-function vBudget() {
-  const ym = S.month, frac = elapsedFrac(ym);
-  const expCats = cats().filter(c => c.type === 'exp');
+const paceTick = frac => frac > 0 && frac < 1 ? `<div class="tick" style="left:${(frac * 100).toFixed(1)}%" title="Even pace for today"></div>` : '';
+function statsByCategory(ym, seg) {
+  const frac = elapsedFrac(ym);
   const spent = spendByCat(ym);
-  if (S.budgetEdit) {
-    return `<section class="sec"><div class="sec-h"><h2>Monthly budgets</h2><span class="muted" style="font-size:13px">Applies to every month</span></div>
-      <div class="bgt-edit">${expCats.map(c => `<label for="b-${esc(c.id)}">${esc(c.name)}</label>
-        <input class="in num" id="b-${esc(c.id)}" inputmode="decimal" placeholder="No budget" value="${c.budget > 0 ? c.budget : ''}">`).join('')}</div>
-      <div class="sheet-actions" style="margin-top:14px"><button class="btn" data-act="budget-cancel">Cancel</button><button class="btn primary" data-act="budget-save">Save budgets</button></div></section>`;
-  }
+  const expCats = cats().filter(c => c.type === 'exp');
   const withB = expCats.filter(c => c.budget > 0);
+  const total = Object.values(spent).reduce((s, v) => s + v, 0);
   const totalB = withB.reduce((s, c) => s + c.budget, 0);
-  const totalSpentB = withB.reduce((s, c) => s + (spent[c.id] || 0), 0);
-  const unbudgeted = expCats.filter(c => !(c.budget > 0) && (spent[c.id] || 0) > 0.004);
-  const unbTotal = unbudgeted.reduce((s, c) => s + spent[c.id], 0);
-  const days = daysIn(ym), today = new Date().getDate(), isNow = ym === ymOf(todayISO());
-  let h = '';
-  if (!withB.length) {
-    h += `<div class="empty"><b>No budgets yet</b>Set a monthly amount per category to see if you're on track.<div style="margin-top:14px"><button class="btn primary" data-act="budget-edit">Set budgets</button></div></div>`;
-    return h;
+  const spentB = withB.reduce((s, c) => s + (spent[c.id] || 0), 0);
+  const unb = Object.keys(spent).filter(id => spent[id] > 0.004 && !withB.some(c => c.id === id)).map(id => ({ id, v: spent[id] })).sort((a, b) => b.v - a.v);
+  const unbTotal = unb.reduce((s, r) => s + r.v, 0);
+  const days = daysIn(ym), today = new Date().getDate(), isNow = ym === ymOf(todayISO()), daysLeft = days - today + 1;
+
+  let h = `<section class="sec"><div class="sec-h"><h2>This month</h2>${seg}</div>
+    <div class="big">${money(total)} <small>spent</small></div>`;
+  if (totalB) {
+    const st0 = budgetStatus(spentB, totalB, frac), left = totalB - spentB;
+    h += `<div class="bar-top" style="margin-top:12px"><span class="num">${money(spentB, 0)} of ${money(totalB, 0)} budget</span><span class="pill ${st0.k}">${st0.icon}${esc(st0.label)}</span></div>
+      <div class="track" style="height:12px"><div class="fill ${st0.k}" style="width:${Math.min(100, spentB / totalB * 100).toFixed(1)}%"></div>${paceTick(frac)}</div>
+      <div class="bar-sub"><span>${Math.round(spentB / totalB * 100)}% used${isNow ? ` · ${Math.round(frac * 100)}% of the month gone` : ''}</span><span>${left >= 0 ? `<span class="num">${money(left, 0)}</span> left` : `Over by <span class="num">${money(-left, 0)}</span>`}</span></div>
+      <div class="pace-note">${isNow ? `Day ${today} of ${days}. The line on each bar marks where spending would be at an even pace today.${left > 0 ? ` You can spend about <span class="num">${money(left / daysLeft, 0)}</span> a day for the rest of the month.` : ''}` : frac >= 1 ? 'This month is over.' : "This month hasn't started."}${unbTotal > 0.004 ? ` Plus <span class="num">${money(unbTotal, 0)}</span> in categories without a budget.` : ''}</div>`;
+  } else {
+    h += `<p class="muted" style="font-size:14px">Set monthly budgets to see whether you're on track.</p><button class="btn small" data-act="tab" data-tab="budget">Set budgets</button>`;
   }
-  const st0 = budgetStatus(totalSpentB, totalB, frac);
-  const leftT = totalB - totalSpentB;
-  const daysLeft = days - today + 1;
-  h += `<section class="sec"><div class="sec-h"><h2>This month</h2>${st0 ? `<span class="pill ${st0.k}">${st0.icon}${esc(st0.label)}</span>` : ''}</div>
-    <div class="big">${money(totalSpentB, 0)} <small>of ${money(totalB, 0)}</small></div>
-    <div class="track" style="margin-top:10px;height:10px"><div class="fill ${st0 ? st0.k : ''}" style="width:${Math.min(100, totalSpentB / totalB * 100).toFixed(1)}%"></div>${frac > 0 && frac < 1 ? `<div class="tick" style="left:${(frac * 100).toFixed(1)}%"></div>` : ''}</div>
-    <div class="pace-note">${isNow ? `Day ${today} of ${days}. The line marks where spending would be at an even pace. ${leftT > 0 ? `You can spend about <span class="num">${money(leftT / daysLeft, 0)}</span> a day for the rest of the month.` : ''}` : frac >= 1 ? 'Month closed.' : 'Month not started.'}
-    ${unbTotal > 0.004 ? `<br>Plus <span class="num">${money(unbTotal, 0)}</span> in categories without a budget.` : ''}</div>
-  </section>`;
-  h += `<section class="sec"><div class="sec-h"><h2>By category</h2><button class="btn ghost small" data-act="budget-edit">Edit budgets</button></div>` +
-    withB.map(c => {
-      const s = spent[c.id] || 0, stt = budgetStatus(s, c.budget, frac);
-      const left = c.budget - s;
-      return `<button class="bar-row" data-act="drill-cat" data-id="${esc(c.id)}">
+  h += `</section>`;
+  if (!total && !totalB) return h + `<div class="empty"><b>No spending in ${esc(monthLabel(ym))}</b>Scan a statement or add a transaction.</div>`;
+
+  if (withB.length) {
+    const rows = withB.map(c => ({ c, v: spent[c.id] || 0 })).sort((a, b) => (b.v / b.c.budget) - (a.v / a.c.budget));
+    h += `<section class="sec"><div class="sec-h"><h2>By category</h2><span class="muted" style="font-size:13px">Bar fills to each budget</span></div>` + rows.map(({ c, v }) => {
+      const stt = budgetStatus(v, c.budget, frac), left = c.budget - v, used = Math.round(v / c.budget * 100);
+      return `<button class="bar-row" data-act="drill-cat" data-id="${esc(c.id)}" aria-label="${esc(c.name)}: ${money(v)} of ${money(c.budget, 0)}, ${stt.label}">
         <div class="bar-top"><span class="bar-name">${esc(c.name)}</span><span class="pill ${stt.k}">${stt.icon}${esc(stt.label)}</span></div>
-        <div class="track"><div class="fill ${stt.k}" style="width:${Math.min(100, s / c.budget * 100).toFixed(1)}%"></div>${frac > 0 && frac < 1 ? `<div class="tick" style="left:${(frac * 100).toFixed(1)}%"></div>` : ''}</div>
-        <div class="bar-sub"><span class="num">${money(s)} of ${money(c.budget, 0)}</span><span>${left >= 0 ? `<span class="num">${money(left, 0)}</span> left${isNow && daysLeft > 0 ? ` · <span class="num">${money(left / daysLeft, 0)}</span>/day` : ''}` : ''}</span></div>
+        <div class="track"><div class="fill ${stt.k}" style="width:${Math.min(100, v / c.budget * 100).toFixed(1)}%"></div>${paceTick(frac)}</div>
+        <div class="bar-sub"><span class="num">${money(v)} of ${money(c.budget, 0)} · ${used}%</span><span>${left >= 0 ? `<span class="num">${money(left, 0)}</span> left${isNow && daysLeft > 0 ? ` · <span class="num">${money(left / daysLeft, 0)}</span>/day` : ''}` : ''}</span></div>
       </button>`;
     }).join('') + `</section>`;
-  if (unbudgeted.length) {
-    h += `<section class="sec"><div class="sec-h"><h2>No budget set</h2></div>` +
-      unbudgeted.map(c => `<div class="kv"><span>${esc(c.name)}</span><span class="num">${money(spent[c.id])}</span></div>`).join('') + `</section>`;
+  }
+  if (unb.length) {
+    h += `<section class="sec"><div class="sec-h"><h2>No budget set</h2><span class="muted" style="font-size:13px">Share of spending</span></div>` + unb.map(r => {
+      const share = total ? Math.round(r.v / total * 100) : 0;
+      return `<button class="bar-row" data-act="drill-cat" data-id="${esc(r.id)}">
+        <div class="bar-top"><span class="bar-name">${esc(catName(r.id))}</span><span class="bar-val">${money(r.v)}<small>${share}%</small></span></div>
+      </button>`;
+    }).join('') + `</section>`;
   }
   return h;
+}
+function statsByCard(ym, seg) {
+  const m = spendByAcc(ym);
+  const rows = Object.entries(m).filter(([, v]) => v > 0.004).map(([id, v]) => ({ id, name: accName(id), v })).sort((a, b) => b.v - a.v);
+  const total = rows.reduce((s, r) => s + r.v, 0);
+  let h = `<section class="sec"><div class="sec-h"><h2>This month</h2>${seg}</div>
+    <div class="big">${money(total)} <small>spent</small></div>
+    <p class="muted" style="font-size:13px;margin:6px 0 0">Each bar is that card's share of this month's spending.</p>`;
+  if (!rows.length) h += `<p class="muted">No spending recorded this month.</p>`;
+  h += `<div style="margin-top:8px">` + rows.map(r => {
+    const share = total ? Math.round(r.v / total * 100) : 0;
+    return `<button class="bar-row" data-act="drill-acc" data-id="${esc(r.id)}" aria-label="${esc(r.name)}: ${money(r.v)}, ${share}% of spending">
+      <div class="bar-top"><span class="bar-name">${esc(r.name)}</span><span class="bar-val">${money(r.v)}<small>${share}%</small></span></div>
+      <div class="track"><div class="fill" style="width:${share}%"></div></div>
+    </button>`;
+  }).join('') + `</div></section>`;
+  return h;
+}
+
+function vBudget() {
+  const expCats = cats().filter(c => c.type === 'exp');
+  const total = expCats.reduce((s, c) => s + (c.budget > 0 ? c.budget : 0), 0);
+  return `<section class="sec"><div class="sec-h"><h2>Monthly budgets</h2><span class="muted" style="font-size:13px">Same every month</span></div>
+    <p class="muted" style="font-size:13px;margin:0 0 12px">How much you plan to spend in each category. Leave a box empty for no budget. Changes save as you go, and your progress shows on the Stats tab.</p>
+    <div class="bgt-edit">${expCats.map(c => `<label for="b-${esc(c.id)}">${esc(c.name)}</label>
+      <input class="in num" id="b-${esc(c.id)}" data-set="budget" data-id="${esc(c.id)}" inputmode="decimal" placeholder="No budget" value="${c.budget > 0 ? c.budget : ''}">`).join('')}
+      <b class="bgt-total-l">Total per month</b><span class="num bgt-total" id="bgt-total">${money(total, 0)}</span>
+    </div>
+    <p class="muted" style="font-size:13px;margin:14px 0 0">Add, rename or remove categories in Settings.</p>
+  </section>`;
 }
 
 function vCards() {
@@ -1131,6 +1127,14 @@ function onField(e, isChange) {
     cs.innerHTML = catOptions(type, keep); return;
   }
   if (el.dataset.set && isChange) {
+    if (el.dataset.set === 'budget') {
+      const c = catById(el.dataset.id); if (!c) return;
+      const v = parseAmt(el.value); c.budget = v > 0 ? round2(v) : null;
+      el.value = c.budget ? c.budget : '';
+      saveSettings();
+      const t = $('#bgt-total'); if (t) t.textContent = money(cats().filter(x => x.type === 'exp').reduce((s, x) => s + (x.budget > 0 ? x.budget : 0), 0), 0);
+      return;
+    }
     if (el.dataset.set === 'cur') { st().cur = el.value.trim().slice(0, 4) || 'S$'; saveSettings(); render(); }
     if (el.dataset.set === 'catname') { const c = catById(el.dataset.id); const v = el.value.trim(); if (c && v) { c.name = v.slice(0, 32); saveSettings(); render(); } }
     return;
