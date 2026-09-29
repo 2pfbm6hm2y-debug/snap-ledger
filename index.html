@@ -281,6 +281,23 @@ label.btn{cursor:pointer}
 .wl-dots{display:flex;justify-content:center;gap:6px;margin:12px 0 4px}
 .wl-dots span{width:6px;height:6px;border-radius:3px;background:var(--line)}
 .wl-dots span.on{width:18px;background:var(--accent)}
+.daily-sum{font-size:14px;line-height:1.5;margin:4px 0 12px;color:var(--ink-2)}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.cal-w{text-align:center;font-size:11px;font-weight:600;color:var(--muted);padding-bottom:2px}
+.cal-d{position:relative;height:46px;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;background:transparent;border:1px solid transparent}
+.cal-d.blank{visibility:hidden}
+.cal-n{font-size:11px;color:var(--muted);line-height:1}
+.cal-v{font-family:var(--mono);font-size:12px;line-height:1.2;min-height:14px;color:var(--ink)}
+.cal-d.in{background:var(--surface-2)}
+.cal-d.over{background:var(--warn-soft);border-color:var(--warn-fill)}
+.cal-d.over .cal-v,.cal-d.over .cal-n{color:var(--warn);font-weight:600}
+.cal-d.zero{border-color:var(--line)}
+.cal-d.fut{opacity:.35}
+.cal-legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:12px;color:var(--muted)}
+.cal-legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid transparent}
+.sw.over{background:var(--warn-soft);border-color:var(--warn-fill)} .sw.in{background:var(--surface-2)} .sw.zero{border-color:var(--line)}
+.day.flash{box-shadow:0 0 0 2px var(--accent);transition:box-shadow .3s}
 .src{margin-top:14px}
 .src pre{white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.45;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0 0;max-height:360px;overflow:auto;color:var(--ink-2)}
 html{padding-top:env(safe-area-inset-top,0px)}

@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.5.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -363,7 +363,7 @@ function vLedger() {
   list.forEach(t => { const g = groups[groups.length - 1]; if (g && g.d === t.d) g.items.push(t); else groups.push({ d: t.d, items: [t] }); });
   h += groups.map(g => {
     const dayNet = g.items.reduce((s, t) => s + (t.type === 'exp' ? t.amt : 0), 0);
-    return `<section class="day"><div class="day-h"><span>${esc(dayLabel(g.d))}</span><span class="num">${money(dayNet)}</span></div>
+    return `<section class="day" id="day-${esc(g.d)}"><div class="day-h"><span>${esc(dayLabel(g.d))}</span><span class="num">${money(dayNet)}</span></div>
       ${g.items.map(t => {
         const k = kindOf(t);
         return `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}">
@@ -434,6 +434,7 @@ function statsByCategory(ym, seg) {
       </button>`;
     }).join('') + `</section>`;
   }
+  h += dailySection(ym, withB);
   if (unb.length) {
     h += `<section class="sec"><div class="sec-h"><h2>No budget set</h2><span class="muted" style="font-size:13px">Share of spending</span></div>` + unb.map(r => {
       const share = total ? Math.round(r.v / total * 100) : 0;
@@ -443,6 +444,44 @@ function statsByCategory(ym, seg) {
     }).join('') + `</section>`;
   }
   return h;
+}
+// Calendar of one budgeted category's daily spending, highlighting days above its daily allowance
+// (monthly budget spread evenly over the days of the month).
+function dailySection(ym, withB) {
+  if (!withB.length) return '';
+  let sel = S.dailyCat || lsGet('snapledger:dailyCat') || '';
+  if (!withB.some(c => c.id === sel)) {
+    const pick = withB.find(c => /food|grocer/i.test(c.name)) || withB.find(c => /transport/i.test(c.name)) || withB.slice().sort((x, y) => y.budget - x.budget)[0];
+    sel = pick.id;
+  }
+  S.dailyCat = sel;
+  const c = catById(sel), days = daysIn(ym), allow = c.budget / days;
+  const byDay = new Array(days + 1).fill(0);
+  monthTx(ym).forEach(t => { if (t.type === 'exp' && t.cat === sel) byDay[+t.d.slice(8, 10)] += t.amt; });
+  const nowYm = ymOf(todayISO());
+  const upto = ym < nowYm ? days : ym > nowYm ? 0 : new Date().getDate();
+  let overDays = 0, overAmt = 0;
+  for (let d = 1; d <= upto; d++) if (byDay[d] > allow + 0.004) { overDays++; overAmt += byDay[d] - allow; }
+  const lead = (new Date(ym + '-01T00:00:00').getDay() + 6) % 7;
+  const short = v => v >= 1000 ? (v / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : v >= 100 ? String(Math.round(v)) : (Math.round(v * 10) / 10).toFixed(1).replace(/\.0$/, '');
+  let cells = '';
+  for (let k = 0; k < lead; k++) cells += '<span class="cal-d blank"></span>';
+  for (let d = 1; d <= days; d++) {
+    const v = round2(byDay[d]), iso = ym + '-' + pad(d), fut = d > upto, over = !fut && v > allow + 0.004;
+    const cls = fut ? 'fut' : over ? 'over' : v > 0.004 ? 'in' : 'zero';
+    const label = `${dayLabel(iso)}: ${v > 0.004 ? money(v) : 'no spending'}${over ? ', ' + money(v - allow) + ' above the daily allowance' : ''}`;
+    cells += `<button class="cal-d ${cls}" data-act="drill-day" data-id="${esc(sel)}" data-d="${iso}" aria-label="${esc(label)}"${fut && !v ? ' disabled' : ''}>
+      <span class="cal-n">${d}</span><span class="cal-v">${v > 0.004 ? short(v) : ''}</span></button>`;
+  }
+  const chips = withB.length > 1 ? `<div class="chips" role="group" aria-label="Category for the daily view">${withB.map(x => `<button class="chip${x.id === sel ? ' on' : ''}" data-act="daily-cat" data-id="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</div>` : '';
+  return `<section class="sec" id="daily"><div class="sec-h"><h2>Day by day</h2><span class="muted" style="font-size:13px">${esc(c.name)}</span></div>
+    ${chips}
+    <p class="daily-sum">Daily allowance <b class="num">${money(allow)}</b> <span class="muted">(${money(c.budget, 0)} ÷ ${days} days)</span><br>
+    ${upto ? (overDays ? `Above it on <b class="t-warn">${overDays} of ${upto} day${upto === 1 ? '' : 's'}</b>${ym === nowYm ? ' so far' : ''}, by <span class="num">${money(overAmt, 0)}</span> in total.` : `Within it every day${ym === nowYm ? ' so far' : ''}.`) : 'This month hasn\'t started.'}</p>
+    <div class="cal">${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(w => `<span class="cal-w">${w}</span>`).join('')}${cells}</div>
+    <div class="cal-legend"><span><i class="sw over"></i>Above allowance</span><span><i class="sw in"></i>Within</span><span><i class="sw zero"></i>No spending</span></div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Amounts in ${esc(cur())}. Tap a day to see its transactions.</p>
+  </section>`;
 }
 function statsByCard(ym, seg) {
   const m = spendByAcc(ym);
@@ -1127,6 +1166,13 @@ document.addEventListener('click', e => {
     case 'filter-acc': S.filterAcc = id && id !== S.filterAcc ? id : null; render(); break;
     case 'filter-cat': S.filterCat = id && id !== S.filterCat ? id : null; render(); break;
     case 'drill-cat': S.filterCat = id; S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0); break;
+    case 'daily-cat': { S.dailyCat = id; lsSet('snapledger:dailyCat', id); const y = window.scrollY; render(); window.scrollTo(0, y); break; }
+    case 'drill-day': {
+      S.filterCat = id; S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0);
+      const el = document.getElementById('day-' + b.dataset.d);
+      if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -70); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); }
+      break;
+    }
     case 'drill-acc': S.filterAcc = id; S.filterCat = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0); break;
     case 'stats-by': S.statsBy = b.dataset.by; render(); break;
     case 'new-tx': openSheet({ kind: 'txn', id: null }); break;
