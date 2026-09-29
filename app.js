@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.7.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -32,7 +32,8 @@ const ICON = {
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg>',
   ok: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg>',
   warn: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2.5v4.2"/><circle cx="6" cy="9.3" r=".5" fill="currentColor"/></svg>',
- up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
+  wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5V7a2 2 0 0 1 2-2h11v3.5"/><rect x="4" y="8.5" width="16" height="10.5" rx="2.5"/><path d="M15.5 13.75h2"/></svg>',
+  up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
   down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
   over: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>'
 };
@@ -555,8 +556,8 @@ function statsByCategory(ym, seg) {
   if (!total && !totalB) return h + `<div class="empty"><b>No spending in ${esc(monthLabel(ym))}</b>Scan a statement or add a transaction.</div>` + trendSection(ym, null);
 
   if (withB.length) {
-    const rows = withB.map(c => ({ c, v: spent[c.id] || 0, st: budgetStatus(spent[c.id] || 0, c.budget, frac) }))
-      .sort((a, b) => (a.st.rank - b.st.rank) || ((b.v / b.c.budget) - (a.v / a.c.budget)));
+    // In your category order (Settings), so each one is always in the same place.
+    const rows = withB.map(c => ({ c, v: spent[c.id] || 0 }));
     h += `<section class="sec"><div class="sec-h"><h2>By category</h2><span class="muted" style="font-size:13px">Bar fills to each budget</span></div>` + rows.map(({ c, v }) => {
       const stt = budgetStatus(v, c.budget, frac), left = c.budget - v, used = Math.round(v / c.budget * 100);
       return `<button class="bar-row" data-act="drill-cat" data-id="${esc(c.id)}" aria-label="${esc(c.name)}: ${money(v)} of ${money(c.budget, 0)}, ${stt.label}">
@@ -1226,7 +1227,7 @@ function welcomeSteps() {
   const steps = [{
     icon: '<img src="icons/cards-180.png" alt="">',
     title: 'Welcome to Snap Ledger',
-    body: `<p>Turn screenshots from your banking apps into a tidy expense ledger, and see at a glance whether you're keeping to your budget.</p><p class="muted">Everything is read and stored on this phone. Nothing is uploaded.</p>`
+    body: `<p>Turn screenshots from your banking apps into a tidy expense ledger, see at a glance whether you're keeping to your budget, and keep your balances matching your bank.</p><p class="muted">Everything is read and stored on this phone. Nothing is uploaded.</p>`
   }];
   if (isIOS() && !isStandalone()) steps.push({
     icon: SHARE_SVG,
@@ -1236,7 +1237,7 @@ function welcomeSteps() {
   steps.push({
     icon: ICON.cards,
     title: 'Add your cards',
-    body: `<p>In <b>Cards</b>, add each card with its last 4 digits. This is how the app tells which card a screenshot is from.</p><ul><li>If a card's app shows more than 4 digits, enter the last 4.</li><li>For e-wallets, choose <b>E-wallet</b> and leave the digits empty.</li><li>To track what you have and owe, tap <b>Add balance</b> and copy the figure from your bank app. Update it now and then, and a correction keeps it matching.</li></ul>`
+    body: `<p>In <b>Cards</b>, add each card with its last 4 digits. This is how the app tells which card a screenshot is from.</p><ul><li>If a card's app shows more than 4 digits, enter the last 4.</li><li>For e-wallets, choose <b>E-wallet</b> and leave the digits empty.</li></ul>`
   });
   steps.push({
     icon: ICON.scan,
@@ -1244,9 +1245,14 @@ function welcomeSteps() {
     body: `<ul><li>Screenshot the transaction list in your bank app. Scroll and take more if it's long.</li><li>In <b>Scan</b>, add them all at once, top of the list first. Mixing cards is fine.</li><li>Check each line, fix anything off, then tap <b>Add</b>. Balance lines are left out for you. Bill payments and top-ups come in as transfers once you track balances.</li></ul><p class="muted">Category fixes are remembered for next time.</p>`
   });
   steps.push({
-    icon: ICON.stats,
+    icon: ICON.budget,
     title: 'Set budgets and track',
-    body: `<p>Set a monthly amount per category in <b>Budget</b>. <b>Stats</b> then shows each one as <b class="t-good">On track</b>, <b class="t-warn">At risk</b> (above today's pace) or <b class="t-bad">Over</b>.</p><p class="muted">Your data lives only on this phone, so use Settings → Back up now from time to time.</p>`
+    body: `<p>Set a monthly amount per category in <b>Budget</b>. <b>Stats</b> then shows each one as <b class="t-good">On track</b>, <b class="t-warn">At risk</b> (above today's pace) or <b class="t-bad">Over</b>.</p><ul><li>The day-by-day calendar shows which days went over the daily allowance, and the six-month trend compares each month with its budget.</li><li>Big one-offs like flights go in <b>Special Spending</b>, which sits outside the monthly budget and gets a running total for the year.</li><li>Rename, reorder or add categories in Settings.</li></ul>`
+  });
+  steps.push({
+    icon: ICON.wallet,
+    title: 'Keep balances matched',
+    body: `<p>Optional. In <b>Cards</b>, tap <b>Add balance</b> and copy the figure from your bank app. Spending, income and transfers then move it.</p><ul><li>Card bills and wallet top-ups are transfers between your own accounts, so they don't count as spending.</li><li>Now and then, tap <b>Update balance</b> with the bank's figure. If it's off, a correction entry makes it match.</li></ul><p class="muted">Your data lives only on this phone, so use Settings → Back up now from time to time.</p>`
   });
   return steps;
 }
