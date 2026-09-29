@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.8.1';
+const APP_VERSION = '1.9.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1208,7 +1208,12 @@ function approveRows() {
   S.tab = 'ledger'; S.month = topYm; S.filterAcc = null; S.filterCat = null;
   render();
   window.scrollTo(0, 0);
-  celebrate(`+${sel.length} added${S.demo ? ' (example)' : ''}`, `Added ${sel.length} transaction${sel.length === 1 ? '' : 's'}${S.demo ? ' to the example ledger (not saved)' : ''}.`);
+  const spend = round2(sel.reduce((n, r) => n + (r.kind === 'exp' ? r.amt : r.kind === 'ref' ? -r.amt : 0), 0)), xN = sel.filter(r => r.kind === 'xfer').length;
+  celebrate({
+    badge: `+${sel.length} added${S.demo ? ' (example)' : ''}`,
+    title: S.demo ? 'Added to the example ledger' : 'Added to your ledger',
+    sub: [`${sel.length} ${sel.length === 1 ? 'entry' : 'entries'}`, Math.abs(spend) > 0.004 ? `${money(spend)} spent` : '', xN ? `${xN} transfer${xN === 1 ? '' : 's'}` : '', S.demo ? 'not saved' : ''].filter(Boolean).join(' · ')
+  }, `Added ${sel.length} transaction${sel.length === 1 ? '' : 's'}${S.demo ? ' to the example ledger (not saved)' : ''}.`);
 }
 function resetImport() {
   S.imp.files.forEach(f => { if (f.url) try { URL.revokeObjectURL(f.url); } catch (e) {} });
@@ -1343,7 +1348,7 @@ function renderSheet() {
       <div class="sheet-actions"><button class="btn" data-act="backup">Back up now</button><label class="btn" for="restore-file">Restore backup</label></div>
       <button class="btn wide" data-act="export" style="margin-top:10px">Export all as CSV</button>
       <div class="sub-h">Display</div>
-      <label class="tgl"><input type="checkbox" data-set="bunny"${st().bunny === false ? '' : ' checked'}><span>Bunny celebration when you add entries</span></label>
+      <label class="field"><span>When you add entries</span><select class="in" data-set="celebrate">${[['screen', 'Success screen with the bunny'], ['hop', 'Quick bunny hop'], ['off', 'Just a message']].map(([v, l]) => `<option value="${v}"${celebrateMode() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="field"><span>Currency symbol</span><input class="in" data-set="cur" value="${esc(cur())}" maxlength="4" style="max-width:120px"></label>
       <div class="sub-h">Expense categories</div><p class="muted" style="font-size:13px;margin:-4px 0 8px">Use the arrows to set the order they appear in across the app.</p><div class="cat-list">${cats().filter(c => c.type === 'exp').map(catRow).join('')}</div>
       <div class="sub-h">Income categories</div><div class="cat-list">${cats().filter(c => c.type === 'inc').map(catRow).join('')}</div>
@@ -1392,7 +1397,9 @@ function saveTx() {
     mo()[ym].txns.push(Object.assign({ id: newId(), raw: '', src: 'manual', t: Date.now() }, rec)); saveMonth(ym);
   }
   closeSheet(); render();
-  if (s.id) toast('Saved.'); else celebrate('+1 added', 'Saved.');
+  if (s.id) toast('Saved.');
+  else celebrate({ badge: '+1 added', title: rec.type === 'xfer' ? 'Transfer added' : 'Added to your ledger',
+    sub: rec.type === 'xfer' ? `${accShort(rec.acc)} → ${accShort(rec.to)} · ${money(rec.amt)}` : [rec.m || catName(rec.cat), money(Math.abs(rec.amt)) + (rec.amt < 0 ? ' refund' : ''), accShort(rec.acc)].join(' · ') }, 'Saved.');
 }
 function saveCard() {
   const name = $('#c-name').value.trim(), l4 = $('#c-l4').value.replace(/\D/g, '').slice(-4), kind = $('#c-kind').value, match = $('#c-match').value.trim().slice(0, 80);
@@ -1424,7 +1431,7 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = fal
    A bunny hops up, jumps for joy with a burst of confetti, shows how many entries went in, and hops
    away. Pure CSS and SVG, never blocks a tap. Off in Settings, and replaced by a plain message when
    the phone asks for reduced motion. */
-const BUNNY_SVG = `<svg viewBox="0 0 120 140" width="104" height="121">
+const BUNNY_SVG = `<svg class="bunny" viewBox="0 0 120 140" width="104" height="121">
   <g class="bn-ear l"><ellipse class="fur" cx="45" cy="30" rx="10" ry="27"/><ellipse class="in" cx="45" cy="33" rx="4.6" ry="17"/></g>
   <g class="bn-ear r"><ellipse class="fur" cx="75" cy="30" rx="10" ry="27"/><ellipse class="in" cx="75" cy="33" rx="4.6" ry="17"/></g>
   <ellipse class="fur" cx="60" cy="106" rx="33" ry="28"/>
@@ -1438,27 +1445,57 @@ const BUNNY_SVG = `<svg viewBox="0 0 120 140" width="104" height="121">
   <path class="mo" d="M60 77.6v1.6M60 79.2q-2.6 2.6-5 .6M60 79.2q2.6 2.6 5 .6"/>
   <ellipse class="fur pw" cx="49" cy="99" rx="6.5" ry="5"/><ellipse class="fur pw" cx="71" cy="99" rx="6.5" ry="5"/>
 </svg>`;
-let bunnyT;
-function celebrate(label, fallback) {
-  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce || (st() && st().bunny === false)) { if (fallback) toast(fallback); return; }
-  const old = document.querySelector('.bn-fx'); if (old) old.remove();
-  clearTimeout(bunnyT); $('#toast').hidden = true;
-  const colors = ['var(--accent)', '#FF8FAB', '#F2C14E', '#52C48E', '#9B8CFF', '#FF9F5A'];
-  const shapes = ['dot', 'bar', 'star'];
+// Confetti pieces for a burst, flying mostly up and outwards, starting after `at` ms.
+function confettiBits(at, n) {
+  const colors = ['var(--accent)', '#FF8FAB', '#F2C14E', '#52C48E', '#9B8CFF', '#FF9F5A'], shapes = ['dot', 'bar', 'star'];
   let bits = '';
-  for (let i = 0; i < 16; i++) {
-    // Mostly up and outwards, like a pop of joy; a few fall sideways.
-    const a = (-172 + i * (164 / 15) + (Math.random() * 10 - 5)) * Math.PI / 180, d = 58 + Math.random() * 44;
-    bits += `<i class="bn-bit ${shapes[i % 3]}" style="--x:${(Math.cos(a) * d).toFixed(1)}px;--y:${(Math.sin(a) * d).toFixed(1)}px;--r:${Math.round(Math.random() * 360 - 180)}deg;--c:${colors[i % colors.length]};animation-delay:${620 + Math.round(Math.random() * 70)}ms"></i>`;
+  for (let i = 0; i < n; i++) {
+    const a = (-172 + i * (164 / (n - 1)) + (Math.random() * 10 - 5)) * Math.PI / 180, d = 58 + Math.random() * 44;
+    bits += `<i class="bn-bit ${shapes[i % 3]}" style="--x:${(Math.cos(a) * d).toFixed(1)}px;--y:${(Math.sin(a) * d).toFixed(1)}px;--r:${Math.round(Math.random() * 360 - 180)}deg;--c:${colors[i % colors.length]};animation-delay:${at + Math.round(Math.random() * 70)}ms"></i>`;
   }
+  return bits;
+}
+// How adding entries is celebrated: 'screen' (full success screen), 'hop' (small bunny hop) or 'off'.
+const celebrateMode = () => { const s = st() || {}; return s.celebrate || (s.bunny === false ? 'off' : 'screen'); };
+// info: { badge: short hop label, title, sub }. fallback: the plain message used when motion is off.
+function celebrate(info, fallback) {
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches, mode = celebrateMode();
+  if (reduce || mode === 'off') { if (fallback) toast(fallback); return; }
+  document.querySelectorAll('.bn-fx,.ok-fx').forEach(e => e.remove());
+  clearTimeout(celebT); $('#toast').hidden = true;
+  if (mode === 'hop') bunnyHop(info.badge, fallback); else successScreen(info);
+}
+let celebT, okClose = null;
+function bunnyHop(label, fallback) {
   const sparks = [[-62, -18, 980], [58, -34, 1080], [-40, -70, 1180]].map(([x, y, t]) => `<i class="bn-spark" style="--x:${x}px;--y:${y}px;animation-delay:${t}ms"></i>`).join('');
   const el = document.createElement('div');
   el.className = 'bn-fx'; el.setAttribute('aria-hidden', 'true');
-  el.innerHTML = `<div class="bn-halo"></div><div class="bn-badge">${esc(label)}</div><div class="bn-burst">${bits}${sparks}</div><div class="bn-shadow"></div><div class="bn-move"><div class="bn-squash">${BUNNY_SVG}</div></div>`;
+  el.innerHTML = `<div class="bn-halo"></div><div class="bn-badge">${esc(label)}</div><div class="bn-burst">${confettiBits(620, 16)}${sparks}</div><div class="bn-shadow"></div><div class="bn-move"><div class="bn-squash">${BUNNY_SVG}</div></div>`;
   document.body.appendChild(el);
-  const live = $('#toast'); live.textContent = fallback || label; // screen readers still hear it
-  bunnyT = setTimeout(() => el.remove(), 2100);
+  $('#toast').textContent = fallback || label; // screen readers still hear it
+  celebT = setTimeout(() => el.remove(), 2100);
+}
+// A full-screen moment: a ring draws itself, the bunny peeks up through it, a check pops in with
+// confetti, and the summary fades up. Closes by itself, or on any tap.
+function successScreen(info) {
+  const el = document.createElement('div');
+  el.className = 'ok-fx'; el.setAttribute('role', 'status');
+  el.innerHTML = `<div class="ok-bg"></div>
+    <div class="ok-stage" aria-hidden="true">
+      <span class="ok-ring"></span><span class="ok-ring r2"></span>
+      <svg class="ok-circle" viewBox="0 0 200 200"><circle class="ok-disc" cx="100" cy="100" r="78"/><circle class="ok-stroke" cx="100" cy="100" r="78"/></svg>
+      <div class="ok-peek"><div class="ok-bunny">${BUNNY_SVG}</div></div>
+      <svg class="ok-check" viewBox="0 0 54 54"><circle cx="27" cy="27" r="24"/><path d="M16 28l7.5 7.5L39 20"/></svg>
+      <div class="ok-burst">${confettiBits(1000, 18)}</div>
+    </div>
+    <h2 class="ok-title">${esc(info.title || 'Added')}</h2>
+    ${info.sub ? `<p class="ok-sub">${esc(info.sub)}</p>` : ''}
+    <p class="ok-hint">Tap anywhere to continue</p>`;
+  const close = () => { if (!el.isConnected || el.classList.contains('out')) return; el.classList.add('out'); okClose = null; setTimeout(() => el.remove(), 240); };
+  el.addEventListener('click', e => { e.stopPropagation(); close(); });
+  document.body.appendChild(el);
+  okClose = close;
+  celebT = setTimeout(close, 2800);
 }
 
 /* ---------- events ---------- */
@@ -1613,7 +1650,7 @@ function onField(e, isChange) {
       const t = $('#bgt-total'); if (t) t.textContent = money(cats().filter(x => x.type === 'exp' && !x.outside).reduce((s, x) => s + (x.budget > 0 ? x.budget : 0), 0), 0);
       return;
     }
-    if (el.dataset.set === 'bunny') { st().bunny = el.checked; saveSettings(); if (el.checked) celebrate('Hello!'); return; }
+    if (el.dataset.set === 'celebrate') { st().celebrate = el.value; delete st().bunny; saveSettings(); if (el.value !== 'off') celebrate({ badge: 'Hello!', title: 'Hello!', sub: 'This is how adding entries will look.' }); return; }
     if (el.dataset.set === 'cur') { st().cur = el.value.trim().slice(0, 4) || 'S$'; saveSettings(); render(); }
     if (el.dataset.set === 'catname') { const c = catById(el.dataset.id); const v = el.value.trim(); if (c && v) { c.name = v.slice(0, 32); saveSettings(); render(); } }
     return;
@@ -1664,6 +1701,7 @@ function onField(e, isChange) {
 document.addEventListener('input', e => onField(e, false));
 document.addEventListener('change', e => onField(e, true));
 document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && okClose) { okClose(); return; }
   if (e.key === 'Escape' && S.sheet) closeSheet();
   if (e.key === 'Enter' && e.target && e.target.id === 'pdf-pw') { e.preventDefault(); answerPassword(e.target.value || ''); }
 });

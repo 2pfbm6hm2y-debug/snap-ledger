@@ -270,27 +270,27 @@ input[type=date].in::-webkit-datetime-edit{padding:0}
 .note{font-size:13px;color:var(--ink-2);background:var(--surface-2);border-radius:12px;padding:10px 12px;margin-bottom:10px}
 
 /* celebration bunny */
-.tgl{display:flex;gap:10px;align-items:center;font-size:15px;margin:2px 0 14px}
-.tgl input{width:20px;height:20px;flex:none;accent-color:var(--accent)}
-.bn-fx{--bn-fur:#FFF8EF;--bn-line:#2B3040;--bn-pink:#FFB3C4;--bn-nose:#FF7E9A;--bn-belly:#FFEEDD;--T:1.9s;
+.bn-fx,.ok-fx{--bn-fur:#FFF8EF;--bn-line:#2B3040;--bn-pink:#FFB3C4;--bn-nose:#FF7E9A;--bn-belly:#FFEEDD}
+.bn-fx{--T:1.9s;
   position:fixed;left:50%;bottom:calc(var(--tabh) + 8px + env(safe-area-inset-bottom,0px));width:240px;height:270px;margin-left:-120px;z-index:30;pointer-events:none}
 .bn-halo{position:absolute;left:50%;bottom:-10px;width:250px;height:250px;margin-left:-125px;border-radius:50%;background:radial-gradient(circle at 50% 58%,var(--bg) 0,var(--bg) 38%,transparent 68%);opacity:0;animation:bn-halo var(--T) both}
-.bn-fx svg{display:block;overflow:visible}
-.bn-fx .fur{fill:var(--bn-fur);stroke:var(--bn-line);stroke-width:2.6}
-.bn-fx .pw{stroke-width:2.2}
-.bn-fx .in{fill:var(--bn-pink)}
-.bn-fx .belly{fill:var(--bn-belly)}
-.bn-fx .ck{fill:var(--bn-pink);opacity:.6}
-.bn-fx .open circle{fill:var(--bn-line)} .bn-fx .open .hl{fill:#fff}
-.bn-fx .happy path{fill:none;stroke:var(--bn-line);stroke-width:2.6;stroke-linecap:round}
-.bn-fx .ns{fill:var(--bn-nose)}
-.bn-fx .mo{fill:none;stroke:var(--bn-line);stroke-width:2;stroke-linecap:round}
+:is(.bn-fx,.ok-fx) .bunny{display:block;overflow:visible}
+:is(.bn-fx,.ok-fx) .fur{fill:var(--bn-fur);stroke:var(--bn-line);stroke-width:2.6}
+:is(.bn-fx,.ok-fx) .pw{stroke-width:2.2}
+:is(.bn-fx,.ok-fx) .in{fill:var(--bn-pink)}
+:is(.bn-fx,.ok-fx) .belly{fill:var(--bn-belly)}
+:is(.bn-fx,.ok-fx) .ck{fill:var(--bn-pink);opacity:.6}
+:is(.bn-fx,.ok-fx) .open circle{fill:var(--bn-line)} :is(.bn-fx,.ok-fx) .open .hl{fill:#fff}
+:is(.bn-fx,.ok-fx) .happy path{fill:none;stroke:var(--bn-line);stroke-width:2.6;stroke-linecap:round}
+:is(.bn-fx,.ok-fx) .ns{fill:var(--bn-nose)}
+:is(.bn-fx,.ok-fx) .mo{fill:none;stroke:var(--bn-line);stroke-width:2;stroke-linecap:round}
 .bn-move{position:absolute;left:50%;bottom:14px;margin-left:-52px;animation:bn-move var(--T) both}
 .bn-squash{transform-origin:50% 100%;animation:bn-squash var(--T) both}
 .bn-ear{transform-box:fill-box;transform-origin:50% 92%}
-.bn-ear.l{animation:bn-ear-l var(--T) both} .bn-ear.r{animation:bn-ear-r var(--T) both}
+.bn-fx .bn-ear.l{animation:bn-ear-l var(--T) both} .bn-fx .bn-ear.r{animation:bn-ear-r var(--T) both}
 .bn-eyes{transform-box:fill-box;transform-origin:50% 50%}
-.bn-eyes.open{animation:bn-open var(--T) both} .bn-eyes.happy{opacity:0;animation:bn-happy var(--T) both}
+.bn-eyes.happy{opacity:0}
+.bn-fx .bn-eyes.open{animation:bn-open var(--T) both} .bn-fx .bn-eyes.happy{animation:bn-happy var(--T) both}
 .bn-shadow{position:absolute;left:50%;bottom:8px;width:84px;height:14px;margin-left:-42px;border-radius:50%;background:rgba(10,14,24,.28);filter:blur(1.5px);animation:bn-shadow var(--T) both}
 .bn-burst{position:absolute;left:50%;bottom:120px;width:0;height:0}
 .bn-bit{position:absolute;left:0;top:0;width:8px;height:8px;background:var(--c);border-radius:50%;opacity:0;animation:bn-pop .95s cubic-bezier(.15,.7,.3,1) both}
@@ -317,6 +317,42 @@ input[type=date].in::-webkit-datetime-edit{padding:0}
 @keyframes bn-spark{0%{opacity:0;transform:scale(0) rotate(0)} 45%{opacity:1;transform:scale(1.15) rotate(45deg)} 100%{opacity:0;transform:scale(.4) rotate(90deg)}}
 @keyframes bn-halo{0%{opacity:0} 12%,84%{opacity:.94} 100%{opacity:0}}
 @keyframes bn-badge{0%,38%{opacity:0;transform:translate(-50%,10px) scale(.6)} 46%{opacity:1;transform:translate(-50%,-4px) scale(1.08)} 52%,84%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-18px) scale(.96)}}
+
+/* success screen */
+.ok-fx{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 24px 60px;text-align:center;cursor:pointer;animation:ok-in .25s ease-out both}
+.ok-fx.out{animation:ok-out .24s ease-in both}
+.ok-bg{position:absolute;inset:0;background:var(--bg);opacity:.96;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.ok-stage{position:relative;width:200px;height:200px;margin-bottom:22px}
+.ok-circle{position:absolute;inset:0;overflow:visible}
+.ok-disc{fill:var(--good-soft);transform-box:fill-box;transform-origin:center;animation:ok-disc .5s .45s cubic-bezier(.3,1.5,.5,1) both}
+.ok-stroke{fill:none;stroke:var(--good);stroke-width:5;stroke-linecap:round;stroke-dasharray:491;stroke-dashoffset:491;transform:rotate(-90deg);transform-origin:100px 100px;animation:ok-draw .65s .1s cubic-bezier(.65,0,.35,1) both}
+.ok-ring{position:absolute;left:22px;top:22px;width:156px;height:156px;border-radius:50%;border:2px solid var(--good);opacity:0;animation:ok-ring 1.1s 1s ease-out both}
+.ok-ring.r2{animation-delay:1.22s}
+.ok-peek{position:absolute;left:25px;top:25px;width:150px;height:150px;border-radius:50%;overflow:hidden;-webkit-mask-image:-webkit-radial-gradient(white,black)}
+.ok-bunny{position:absolute;left:50%;bottom:-10px;margin-left:-55px;width:110px;animation:ok-bunny .6s .62s cubic-bezier(.3,1.35,.5,1) both}
+.ok-bunny .bunny{width:110px;height:128px}
+.ok-fx .bn-ear.l{animation:ok-ear-l 1.2s .85s both} .ok-fx .bn-ear.r{animation:ok-ear-r 1.2s .85s both}
+.ok-fx .bn-eyes.open{animation:ok-open 1.7s .95s step-end both} .ok-fx .bn-eyes.happy{animation:ok-happy 1.7s .95s step-end both}
+.ok-check{position:absolute;right:12px;bottom:14px;width:56px;height:56px;overflow:visible;animation:ok-pop .5s .98s cubic-bezier(.3,1.7,.5,1) both}
+.ok-check circle{fill:var(--good);stroke:var(--bg);stroke-width:4}
+.ok-check path{fill:none;stroke:#fff;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:34;stroke-dashoffset:34;animation:ok-tick .32s 1.18s ease-out both}
+.ok-burst{position:absolute;left:100px;top:96px;width:0;height:0}
+.ok-title{position:relative;font-size:23px;margin:0 0 6px;animation:ok-up .45s 1.05s ease-out both}
+.ok-sub{position:relative;color:var(--ink-2);font-size:15px;margin:0;max-width:320px;animation:ok-up .45s 1.2s ease-out both}
+.ok-hint{position:relative;color:var(--muted);font-size:12px;margin:26px 0 0;animation:ok-up .45s 1.6s ease-out both}
+@keyframes ok-in{from{opacity:0}}
+@keyframes ok-out{to{opacity:0;transform:scale(1.03)}}
+@keyframes ok-draw{to{stroke-dashoffset:0}}
+@keyframes ok-disc{from{opacity:0;transform:scale(.55)}}
+@keyframes ok-ring{0%{opacity:.7;transform:scale(1)} 100%{opacity:0;transform:scale(1.6)}}
+@keyframes ok-bunny{from{transform:translateY(110px) scale(.92)}}
+@keyframes ok-pop{from{transform:scale(0) rotate(-30deg)}}
+@keyframes ok-tick{to{stroke-dashoffset:0}}
+@keyframes ok-up{from{opacity:0;transform:translateY(10px)}}
+@keyframes ok-ear-l{0%{transform:rotate(0)} 18%{transform:rotate(-15deg)} 36%{transform:rotate(11deg)} 54%{transform:rotate(-6deg)} 72%,100%{transform:rotate(0)}}
+@keyframes ok-ear-r{0%{transform:rotate(0)} 18%{transform:rotate(15deg)} 36%{transform:rotate(-11deg)} 54%{transform:rotate(6deg)} 72%,100%{transform:rotate(0)}}
+@keyframes ok-happy{0%{opacity:0} 6%,72%{opacity:1} 78%,100%{opacity:0}}
+@keyframes ok-open{0%{opacity:1} 6%,72%{opacity:0} 78%,100%{opacity:1}}
 
 /* tab bar */
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:7;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
