@@ -136,6 +136,11 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .bar-sub{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);margin-top:6px}
 
 .trend{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-items:end;height:150px;border-bottom:1px solid var(--line);padding-top:22px}
+.trend{position:relative}
+.trend-ov{position:absolute;left:0;right:0;top:22px;bottom:0;pointer-events:none}
+.trend-b{position:absolute;left:0;right:0;border-top:1.5px dashed var(--ink-2);opacity:.55}
+.tb.over .tb-bar{background:var(--bad);opacity:.55}
+.tb.cur.over .tb-bar{background:var(--bad);opacity:1}
 .tb{position:relative;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center}
 .tb-bar{width:60%;max-width:38px;border-radius:4px 4px 0 0;background:var(--accent-mid);min-height:2px}
 .tb.cur .tb-bar{background:var(--accent)}
@@ -278,7 +283,10 @@ input[type=date].in::-webkit-datetime-edit{padding:0}
 .sheet-actions{display:flex;gap:10px;margin-top:8px}
 .sheet-actions .btn{flex:1}
 .cat-list{display:grid;gap:6px;margin-bottom:10px}
-.cat-item{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.cat-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:6px;align-items:center}
+.cat-item .mv{width:34px;height:40px;border-radius:10px;background:var(--surface-2);color:var(--ink-2);display:grid;place-items:center}
+.cat-item .mv svg{width:18px;height:18px}
+.cat-item .mv:disabled{opacity:.3}
 .cat-item .in{height:40px}
 .sub-h{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:16px 0 8px}
 .kv{display:flex;justify-content:space-between;align-items:center;gap:10px;padding-block:8px;border-top:1px solid var(--line);font-size:14px}

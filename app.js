@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.7.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -32,6 +32,8 @@ const ICON = {
   upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg>',
   ok: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg>',
   warn: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2.5v4.2"/><circle cx="6" cy="9.3" r=".5" fill="currentColor"/></svg>',
+ up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
+  down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
   over: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>'
 };
 
@@ -496,20 +498,31 @@ function vLedger() {
 function vStats() {
   const ym = S.month;
   const seg = `<div class="seg" role="group" aria-label="Group by"><button class="${S.statsBy === 'cat' ? 'on' : ''}" data-act="stats-by" data-by="cat">Category</button><button class="${S.statsBy === 'acc' ? 'on' : ''}" data-act="stats-by" data-by="acc">Card</button></div>`;
-  let h = S.statsBy === 'cat' ? statsByCategory(ym, seg) : statsByCard(ym, seg);
-
+  return S.statsBy === 'cat' ? statsByCategory(ym, seg) + specialYear(ym) : statsByCard(ym, seg) + trendSection(ym, null);
+}
+// Six months up to this one. sel: 'all' (every budgeted category), a category id, or null (all spending
+// inside the monthly budget, when no budgets are set). The budget, when there is one, is a dashed line.
+function trendSection(ym, sel) {
   const months = []; for (let k = -5; k <= 0; k++) months.push(addMonths(ym, k));
-  const vals = months.map(m => { const sp = spendByCat(m); return Object.keys(sp).reduce((n, id) => n + (isOutside(id) ? 0 : sp[id]), 0); });
-  const max = Math.max(1, ...vals);
+  const bIds = new Set(budgetCats().map(c => c.id));
+  const inSel = sel === 'all' ? (id => bIds.has(id)) : sel ? (id => id === sel) : (id => !isOutside(id));
+  const vals = months.map(m => { const sp = spendByCat(m); return Object.keys(sp).reduce((n, id) => n + (inSel(id) ? sp[id] : 0), 0); });
+  const budget = sel === 'all' ? budgetCats().reduce((n, c) => n + c.budget, 0) : sel ? ((catById(sel) || {}).budget || 0) : 0;
+  const max = Math.max(1, budget, ...vals);
   const avg = vals.slice(0, 5).filter(v => v > 0);
-  const avgV = avg.length ? avg.reduce((s, v) => s + v, 0) / avg.length : 0;
-  h += `<section class="sec"><div class="sec-h"><h2>Six-month trend</h2>${avgV ? `<span class="muted" style="font-size:13px">Prior avg <span class="num">${money(avgV, 0)}</span></span>` : ''}</div>
-    <div class="trend">${months.map((m, i) => `<button class="tb${m === ym ? ' cur' : ''}" data-act="goto-month" data-ym="${m}" aria-label="${esc(monthLabel(m))}: ${money(vals[i], 0)}">
+  const avgV = avg.length ? avg.reduce((n, v) => n + v, 0) / avg.length : 0;
+  const label = sel === 'all' ? 'All budgeted categories' : sel ? catName(sel) : 'All spending';
+  const notes = [];
+  if (avgV) notes.push(`Average of the months before: <span class="num">${money(avgV, 0)}</span>.`);
+  if (budget) notes.push(`Dashed line: budget of <span class="num">${money(budget, 0)}</span> a month${vals.some(v => v > budget + 0.004) ? '. Red bars are over it.' : '.'}`);
+  return `<section class="sec" id="trend"><div class="sec-h"><h2>Six-month trend</h2><span class="muted" style="font-size:13px">${esc(label)}</span></div>
+    <div class="trend">${months.map((m, i) => `<button class="tb${m === ym ? ' cur' : ''}${budget && vals[i] > budget + 0.004 ? ' over' : ''}" data-act="goto-month" data-ym="${m}" aria-label="${esc(monthLabel(m))}: ${money(vals[i], 0)}${budget ? ' of ' + money(budget, 0) : ''}">
       <span class="tb-val" style="bottom:${(vals[i] / max * 100).toFixed(1)}%">${money(vals[i], 0)}</span>
-      <span class="tb-bar" style="height:${(vals[i] / max * 100).toFixed(1)}%"></span></button>`).join('')}</div>
+      <span class="tb-bar" style="height:${(vals[i] / max * 100).toFixed(1)}%"></span></button>`).join('')}
+      ${budget ? `<div class="trend-ov" aria-hidden="true"><div class="trend-b" style="bottom:${(budget / max * 100).toFixed(1)}%"></div></div>` : ''}</div>
     <div class="trend-labs">${months.map(m => `<span class="${m === ym ? 'cur' : ''}">${esc(monthShort(m))}</span>`).join('')}</div>
+    ${notes.length ? `<p class="muted" style="font-size:12px;margin:8px 0 0">${notes.join(' ')}</p>` : ''}
   </section>`;
-  return h;
 }
 const paceTick = frac => frac > 0 && frac < 1 ? `<div class="tick" style="left:${(frac * 100).toFixed(1)}%" title="Even pace for today"></div>` : '';
 function statsByCategory(ym, seg) {
@@ -539,7 +552,7 @@ function statsByCategory(ym, seg) {
     h += `<p class="muted" style="font-size:14px">Set monthly budgets to see whether you're on track.</p><button class="btn small" data-act="tab" data-tab="budget">Set budgets</button>`;
   }
   h += `</section>`;
-  if (!total && !totalB) return h + `<div class="empty"><b>No spending in ${esc(monthLabel(ym))}</b>Scan a statement or add a transaction.</div>` + specialYear(ym);
+  if (!total && !totalB) return h + `<div class="empty"><b>No spending in ${esc(monthLabel(ym))}</b>Scan a statement or add a transaction.</div>` + trendSection(ym, null);
 
   if (withB.length) {
     const rows = withB.map(c => ({ c, v: spent[c.id] || 0, st: budgetStatus(spent[c.id] || 0, c.budget, frac) }))
@@ -553,8 +566,9 @@ function statsByCategory(ym, seg) {
       </button>`;
     }).join('') + `</section>`;
   }
-  h += dailySection(ym, withB);
-  h += specialYear(ym);
+  const sel = statsSel(withB);
+  h += dailySection(ym, withB, sel);
+  h += trendSection(ym, withB.length ? sel : null);
   if (unb.length) {
     h += `<section class="sec"><div class="sec-h"><h2>No budget set</h2><span class="muted" style="font-size:13px">Share of spending</span></div>` + unb.map(r => {
       const share = total ? Math.round(r.v / total * 100) : 0;
@@ -598,17 +612,20 @@ function specialYear(ym) {
 }
 // Calendar of one budgeted category's daily spending, highlighting days above its daily allowance
 // (monthly budget spread evenly over the days of the month).
-function dailySection(ym, withB) {
+// The category picked for the day-by-day calendar and the six-month trend: 'all' or one budgeted category.
+function statsSel(withB) {
+  const sel = S.dailyCat || lsGet('snapledger:dailyCat') || 'all';
+  S.dailyCat = sel === 'all' || withB.some(c => c.id === sel) ? sel : 'all';
+  return S.dailyCat;
+}
+function dailySection(ym, withB, sel) {
   if (!withB.length) return '';
-  let sel = S.dailyCat || lsGet('snapledger:dailyCat') || '';
-  if (!withB.some(c => c.id === sel)) {
-    const pick = withB.find(c => /food|grocer/i.test(c.name)) || withB.find(c => /transport/i.test(c.name)) || withB.slice().sort((x, y) => y.budget - x.budget)[0];
-    sel = pick.id;
-  }
-  S.dailyCat = sel;
-  const c = catById(sel), days = daysIn(ym), allow = c.budget / days;
+  const all = sel === 'all', c = all ? null : catById(sel);
+  const budget = all ? withB.reduce((n, x) => n + x.budget, 0) : c.budget, name = all ? 'All budgeted categories' : c.name;
+  const ids = new Set(all ? withB.map(x => x.id) : [sel]);
+  const days = daysIn(ym), allow = budget / days;
   const byDay = new Array(days + 1).fill(0);
-  monthTx(ym).forEach(t => { if (t.type === 'exp' && t.cat === sel) byDay[+t.d.slice(8, 10)] += t.amt; });
+  monthTx(ym).forEach(t => { if (t.type === 'exp' && ids.has(t.cat)) byDay[+t.d.slice(8, 10)] += t.amt; });
   const nowYm = ymOf(todayISO());
   const upto = ym < nowYm ? days : ym > nowYm ? 0 : new Date().getDate();
   let overDays = 0, overAmt = 0;
@@ -627,10 +644,11 @@ function dailySection(ym, withB) {
     cells += `<button class="cal-d ${cls}" data-act="drill-day" data-id="${esc(sel)}" data-d="${iso}" aria-label="${esc(label)}"${fut && !v ? ' disabled' : ''}>
       <span class="cal-n">${d}</span><span class="cal-v">${v > 0.004 ? short(v) : ''}</span></button>`;
   }
-  const chips = withB.length > 1 ? `<div class="chips" role="group" aria-label="Category for the daily view">${withB.map(x => `<button class="chip${x.id === sel ? ' on' : ''}" data-act="daily-cat" data-id="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</div>` : '';
-  return `<section class="sec" id="daily"><div class="sec-h"><h2>Day by day</h2><span class="muted" style="font-size:13px">${esc(c.name)}</span></div>
+  const chips = `<div class="chips" role="group" aria-label="Category for the day-by-day view and the six-month trend"><button class="chip${all ? ' on' : ''}" data-act="daily-cat" data-id="all">All</button>${withB.map(x => `<button class="chip${x.id === sel ? ' on' : ''}" data-act="daily-cat" data-id="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</div>`;
+  return `<section class="sec" id="daily"><div class="sec-h"><h2>Day by day</h2><span class="muted" style="font-size:13px">${esc(name)}</span></div>
     ${chips}
-    <p class="daily-sum">Daily allowance <b class="num">${money(allow)}</b> <span class="muted">(${money(c.budget, 0)} ÷ ${days} days)</span><br>
+    <p class="muted" style="font-size:12px;margin:-2px 0 8px">This choice also sets the six-month trend below.</p>
+    <p class="daily-sum">Daily allowance <b class="num">${money(allow)}</b> <span class="muted">(${money(budget, 0)} ÷ ${days} days)</span><br>
     ${upto ? (overDays ? `Above it on <b class="t-warn">${overDays} of ${upto} day${upto === 1 ? '' : 's'}</b>${ym === nowYm ? ' so far' : ''}, by <span class="num">${money(overAmt, 0)}</span> in total.` : `Within it every day${ym === nowYm ? ' so far' : ''}.`) : 'This month hasn\'t started.'}</p>
     <div class="cal">${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(w => `<span class="cal-w">${w}</span>`).join('')}${cells}</div>
     <p class="heat-cap">How far above the daily allowance</p>
@@ -667,7 +685,7 @@ function vBudget() {
       <input class="in num" id="b-${esc(c.id)}" data-set="budget" data-id="${esc(c.id)}" inputmode="decimal" placeholder="No budget" value="${c.budget > 0 ? c.budget : ''}">`).join('')}
       <b class="bgt-total-l">Total per month</b><span class="num bgt-total" id="bgt-total">${money(total, 0)}</span>
     </div>
-    <p class="muted" style="font-size:13px;margin:14px 0 0">Add, rename or remove categories in Settings.</p>
+    <p class="muted" style="font-size:13px;margin:14px 0 0">Add, rename, reorder or remove categories in Settings.</p>
   </section>
   <section class="sec"><div class="sec-h"><h2>Outside the monthly budget</h2></div>
     <p class="muted" style="font-size:13px;margin:0 0 12px">For one-off or big spending like flights or furniture. It still counts toward your card and account balances, but not toward monthly budgets or the run rate. Stats shows a running total for the year. Tap a category to move it in or out.</p>
@@ -1307,7 +1325,9 @@ function renderSheet() {
     const ruleN = Object.keys(st().rules || {}).length;
     const all = txCount();
     const lb = !S.demo && st().lastBackup;
-    const catRow = c => `<div class="cat-item"><input class="in" data-set="catname" data-id="${esc(c.id)}" value="${esc(c.name)}" aria-label="Category name" maxlength="32"><button class="btn small" data-act="del-cat" data-id="${esc(c.id)}">Remove</button></div>`;
+    const catRow = (c, i, arr) => `<div class="cat-item"><input class="in" data-set="catname" data-id="${esc(c.id)}" value="${esc(c.name)}" aria-label="Category name" maxlength="32">
+      <button class="mv" data-act="move-cat" data-id="${esc(c.id)}" data-k="-1" aria-label="Move ${esc(c.name)} up"${i === 0 ? ' disabled' : ''}>${ICON.up}</button><button class="mv" data-act="move-cat" data-id="${esc(c.id)}" data-k="1" aria-label="Move ${esc(c.name)} down"${i === arr.length - 1 ? ' disabled' : ''}>${ICON.down}</button>
+      <button class="btn small" data-act="del-cat" data-id="${esc(c.id)}">Remove</button></div>`;
     el.innerHTML = `<div class="grab"></div><h2>Settings</h2>
       <div class="sub-h">Your data</div>
       <div class="kv"><span>Stored</span><span>${S.demo ? 'Example data, not saved' : S.mode === 'device' ? 'On this iPhone only' : 'Not being saved'}</span></div>
@@ -1318,7 +1338,7 @@ function renderSheet() {
       <button class="btn wide" data-act="export" style="margin-top:10px">Export all as CSV</button>
       <div class="sub-h">Display</div>
       <label class="field"><span>Currency symbol</span><input class="in" data-set="cur" value="${esc(cur())}" maxlength="4" style="max-width:120px"></label>
-      <div class="sub-h">Expense categories</div><div class="cat-list">${cats().filter(c => c.type === 'exp').map(catRow).join('')}</div>
+      <div class="sub-h">Expense categories</div><p class="muted" style="font-size:13px;margin:-4px 0 8px">Use the arrows to set the order they appear in across the app.</p><div class="cat-list">${cats().filter(c => c.type === 'exp').map(catRow).join('')}</div>
       <div class="sub-h">Income categories</div><div class="cat-list">${cats().filter(c => c.type === 'inc').map(catRow).join('')}</div>
       <div class="row2" style="grid-template-columns:1fr 110px auto"><input class="in" id="new-cat" placeholder="New category" maxlength="32"><select class="in" id="new-cat-type"><option value="exp">Expense</option><option value="inc">Income</option></select><button class="btn small" data-act="add-cat" style="height:44px">Add</button></div>
       <div class="sub-h">Scanning</div>
@@ -1414,7 +1434,7 @@ document.addEventListener('click', e => {
     case 'drill-cat': S.filterCat = id; S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0); break;
     case 'daily-cat': { S.dailyCat = id; lsSet('snapledger:dailyCat', id); const y = window.scrollY; render(); window.scrollTo(0, y); break; }
     case 'drill-day': {
-      S.filterCat = id; S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0);
+      S.filterCat = id === 'all' ? null : id; S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0);
       const el = document.getElementById('day-' + b.dataset.d);
       if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -70); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); }
       break;
@@ -1468,6 +1488,18 @@ document.addEventListener('click', e => {
       const name = $('#new-cat').value.trim(), type = $('#new-cat-type').value;
       if (!name) break;
       st().categories.push({ id: 'c' + newId(), name: name.slice(0, 32), type, budget: null }); saveSettings(); renderSheet();
+      break;
+    }
+    case 'move-cat': {
+      const list = st().categories, c = catById(id); if (!c) break;
+      const same = list.filter(x => x.type === c.type), i = same.indexOf(c), j = i + (+b.dataset.k);
+      if (j < 0 || j >= same.length) break;
+      const a = list.indexOf(c), o = list.indexOf(same[j]);
+      list[a] = same[j]; list[o] = c;
+      saveSettings();
+      const sh = $('#sheet'), y = sh.scrollTop; renderSheet(); sh.scrollTop = y; render();
+      const nb = sh.querySelector(`[data-act="move-cat"][data-id="${CSS.escape(id)}"][data-k="${b.dataset.k}"]`);
+      if (nb && !nb.disabled) nb.focus();
       break;
     }
     case 'del-cat': {
