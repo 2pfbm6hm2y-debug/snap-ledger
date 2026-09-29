@@ -25,6 +25,13 @@ card against monthly budgets. Nothing is uploaded and no AI service is called.
 
 Always open it from the home-screen icon. Its data is kept separately from Safari.
 
+## Set up your cards
+
+Add each card in the **Cards** tab with its last 4 digits (if a card's app shows
+more than 4 digits, enter the last 4). For an e-wallet, choose **E-wallet** and
+leave the digits empty. You can then add screenshots from all
+your cards in one go, and the app works out which card each screenshot belongs to.
+
 ## Your data
 
 Everything is stored on the phone. Use **Settings > Back up now** from time to time

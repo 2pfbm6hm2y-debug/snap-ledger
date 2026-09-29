@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -491,8 +491,8 @@ function vImport() {
   if (I.status === 'review') return vReview();
   if (!accById(I.accountId)) I.accountId = accts()[0].id;
   let h = '';
-  h += `<div class="field"><span>Card on this statement</span><select class="in" id="imp-acc">${accOptions(I.accountId)}</select></div>`;
-  h += `<label class="drop" id="drop" for="imp-file">${ICON.upload}<b>Add screenshots or a PDF statement</b><span class="muted">Several at once is fine. Overlapping screenshots are OK.</span>
+  h += `<div class="field"><span>If the app can't tell the card, use</span><select class="in" id="imp-acc">${accOptions(I.accountId)}</select></div>`;
+  h += `<label class="drop" id="drop" for="imp-file">${ICON.upload}<b>Add screenshots or a PDF statement</b><span class="muted">Add everything at once, from any of your cards. The app works out which card each one is.</span>
       <input type="file" id="imp-file" accept="image/*,application/pdf,.pdf" multiple></label>`;
   if (I.files.length) {
     h += `<div class="thumbs">${I.files.map((f, i) => f.kind === 'pdf'
@@ -523,7 +523,9 @@ function vReview() {
   const dupN = I.rows.filter(r => r.dup).length, lowN = I.rows.filter(r => r.conf === 'low' && !r.learned).length;
   const notes = [];
   if (I.notes) notes.push(esc(I.notes));
-  if (I.skipped.length) notes.push(`Left out ${I.skipped.length} card payment${I.skipped.length === 1 ? '' : 's'} (<span class="num">${money(I.skipped.reduce((s, p) => s + p.amount, 0))}</span>), since paying the bill isn't spending.`);
+  const pays = I.skipped.filter(x => x.kind !== 'topup'), tops = I.skipped.filter(x => x.kind === 'topup');
+  if (pays.length) notes.push(`Left out ${pays.length} card payment${pays.length === 1 ? '' : 's'} (<span class="num">${money(pays.reduce((s, p) => s + p.amount, 0))}</span>), since paying the bill isn't spending.`);
+  if (tops.length) notes.push(`Left out ${tops.length} wallet top-up${tops.length === 1 ? '' : 's'}.`);
   if (dupN) notes.push(`${dupN} line${dupN === 1 ? ' looks' : 's look'} already recorded and ${dupN === 1 ? 'is' : 'are'} unticked.`);
   if (lowN) notes.push(`Categories shaded amber are ones the app didn't recognise.`);
   notes.push('Compare amounts with your screenshot before adding.');
@@ -531,14 +533,29 @@ function vReview() {
   h += `<div class="rv-tools">
     <button class="btn small" data-act="rv-all">${I.rows.every(r => r.sel) ? 'Untick all' : 'Tick all'}</button>
     <select class="in" id="bulk-cat" aria-label="Set category for ticked"><option value="">Set category for ticked…</option>${catOptions('exp', '')}</select>
-    <select class="in" id="bulk-acc" aria-label="Set card for ticked"><option value="">Set card for ticked…</option>${accOptions('')}</select>
   </div>`;
-  h += `<div id="rv-list">${I.rows.map(vRow).join('')}</div>`;
+  h += `<div id="rv-list">${vGroups()}</div>`;
   h += `<button class="btn wide" data-act="rv-add" style="margin-top:4px">Add a missed line</button>`;
   h += `<div class="rv-foot" id="rv-foot">${vFoot()}</div>`;
   h += vSource();
   h += `<div class="sheet-actions" style="margin-top:12px"><button class="btn" data-act="imp-back">Back</button><button class="btn" data-act="imp-reset">Discard all</button></div>`;
   return h;
+}
+function vGroups() {
+  const I = S.imp, groups = I.groups || [];
+  if (!groups.length) return I.rows.map(vRow).join('');
+  return groups.map((g, gi) => {
+    const idx = I.rows.map((r, i) => r.g === gi ? i : -1).filter(i => i >= 0);
+    const skippedN = (g.skipped || []).length;
+    const head = `<div class="grp-h">
+        ${g.thumb ? `<img class="grp-thumb" src="${esc(g.thumb)}" alt="">` : ''}
+        <div class="grp-info"><b>${esc(g.label)}</b><span class="muted">${g.auto ? 'Card matched by ' + esc(g.why) : accts().length > 1 ? "Couldn't tell the card. Pick it here." : ''}</span></div>
+        <select class="in grp-acc${g.auto ? '' : ' unsure'}" data-g="${gi}" aria-label="Card for ${esc(g.label)}">${accOptions(g.acc)}</select>
+      </div>`;
+    const body = idx.length ? idx.map(i => vRow(I.rows[i], i)).join('')
+      : `<p class="muted grp-empty">No transactions on this one${skippedN ? ` (left out ${skippedN} payment${skippedN === 1 ? '' : 's'} or top-up${skippedN === 1 ? '' : 's'})` : ', so nothing to add'}.</p>`;
+    return `<section class="grp">${head}${body}</section>`;
+  }).join('');
 }
 function vSource() {
   const I = S.imp;
@@ -566,7 +583,6 @@ function vRow(r, i) {
         <input class="in" type="date" data-f="d" value="${esc(r.d)}" aria-label="Date">
         <select class="in" data-f="kind" aria-label="Type">${kindOptions(r.kind)}</select>
         <select class="in${r.conf === 'low' && !r.learned ? ' unsure' : ''}" data-f="cat" aria-label="Category">${catOptions(type, r.cat)}</select>
-        <select class="in" data-f="acc" aria-label="Card">${accOptions(r.acc)}</select>
       </div>
       <div class="rv-meta">${tags.join('')}${r.raw ? `<span class="raw num">${esc(r.raw)}</span>` : ''}</div>
     </div></div>`;
@@ -679,9 +695,10 @@ function initOcr() {
   })().catch(e => { ocrP = null; if (ocrW) { ocrW.terminate(); ocrW = null; } console.warn('[snapledger] text reader failed to start', e); throw e; });
   return ocrP;
 }
-async function prepImage(file) {
+async function prepImage(file, opt) {
+  opt = opt || {};
   const bmp = await createImageBitmap(file);
-  let scale = bmp.width < 900 ? 2 : 1;
+  let scale = opt.scale || (bmp.width < 900 ? 2 : 1);
   const maxPx = 16e6;
   if (bmp.width * bmp.height * scale * scale > maxPx) scale = Math.sqrt(maxPx / (bmp.width * bmp.height));
   const c = document.createElement('canvas');
@@ -701,9 +718,9 @@ async function prepImage(file) {
   for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * 0.02) { lo = v; break; } }
   acc = 0;
   for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= n * 0.35) { hi = v; break; } }
-  if (hi - lo < 20) { lo = 0; hi = 255; }
+  if (hi - lo < 20 || opt.raw) { lo = 0; hi = 255; }
   const lut = new Uint8ClampedArray(256);
-  for (let v = 0; v < 256; v++) { const t = Math.min(1, Math.max(0, (v - lo) / (hi - lo))); lut[v] = 255 * Math.pow(t, 2.2); }
+  for (let v = 0; v < 256; v++) { const t = Math.min(1, Math.max(0, (v - lo) / (hi - lo))); lut[v] = 255 * Math.pow(t, opt.gamma || 2.2); }
   for (let i = 0; i < d.length; i += 4) { const v = lut[d[i] | 0]; d[i] = d[i + 1] = d[i + 2] = v; }
   g.putImageData(im, 0, 0);
   const blob = await new Promise(r => c.toBlob(r, 'image/png'));
@@ -738,7 +755,7 @@ async function readStatements() {
   const pasted = (I.text || '').trim();
   if (!(I.files.length || pasted)) return;
   lsSet('snapledger:lastCard', I.accountId);
-  const pdfs = I.files.filter(f => f.kind === 'pdf'), imgs = I.files.filter(f => f.kind === 'img').map(f => f.file);
+  const pdfs = I.files.filter(f => f.kind === 'pdf'), imgs = I.files.filter(f => f.kind === 'img');
   I.status = 'reading'; I.error = ''; I.stopped = false; I.phase = 'Getting ready…'; I.source = ''; I.showSource = false;
   render();
   const blocks = [], notes = [];
@@ -757,21 +774,24 @@ async function readStatements() {
     if (imgs.length) {
       setPhase('Loading the text reader…');
       try { await initOcr(); } catch (e) { throw { code: 'ocr_init' }; }
-      const texts = [];
       for (let i = 0; i < imgs.length; i++) {
         stopCheck();
         setPhase(`Reading screenshot ${i + 1} of ${imgs.length}`);
         let r;
-        try { const bytes = await prepImage(imgs[i]); r = await ocrCall({ type: 'rec', image: bytes.buffer }, [bytes.buffer]); }
+        try { const bytes = await prepImage(imgs[i].file); r = await ocrCall({ type: 'rec', image: bytes.buffer, psm: 11 }, [bytes.buffer]); }
         catch (e) { console.warn('[snapledger] text recognition failed', e); throw { code: 'ocr_fail', n: i + 1 }; }
-        texts.push(`--- screenshot ${i + 1} ---\n` + tsvToText(r.tsv));
+        blocks.push({ label: `Screenshot ${i + 1}`, text: tsvToText(r.tsv), thumb: imgs[i].url });
       }
-      blocks.push({ label: imgs.length === 1 ? 'Screenshot' : `${imgs.length} screenshots`, text: texts.join('\n') });
     }
     stopCheck();
     setPhase('Picking out transactions…');
     const hasCat = id => !!catById(id);
-    const results = blocks.map(b => SnapParse.parse(b.text, { hasCat, rules: st().rules || {}, today: todayISO() }));
+    const hints = st().acctHints || {};
+    const results = blocks.map(b => {
+      const res = SnapParse.parse(b.text, { hasCat, rules: st().rules || {}, today: todayISO() });
+      const det = SnapParse.detectAccount(b.text, accts(), hints);
+      return Object.assign(res, { label: b.label, thumb: b.thumb || '', found: det.found, signals: det.signals });
+    });
     I.source = blocks.map(b => `=== ${b.label} ===\n${b.text}`).join('\n\n');
     buildRows(results, notes);
   } catch (e) {
@@ -788,34 +808,54 @@ async function readStatements() {
   render();
 }
 function fallbackCat(type) { return type === 'inc' ? (catById('cashback') ? 'cashback' : firstCat('inc')) : (catById('other') ? 'other' : firstCat('exp')); }
+const dayDiff = (a, b) => Math.abs((new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 864e5);
 function buildRows(results, notes) {
   const I = S.imp;
-  const rows = [], skipped = [];
+  const rows = [], skipped = [], groups = [];
   const today = todayISO();
-  results.forEach(res => {
+  results.forEach((res, gi) => {
+    const acc = res.found && accById(res.found.id) ? res.found.id : I.accountId;
+    groups.push({ label: res.label, thumb: res.thumb, acc, why: res.found ? res.found.why : '', auto: !!res.found, signals: res.signals, skipped: res.skipped });
     skipped.push(...res.skipped);
     res.transactions.forEach(t => {
       if (!(t.amount > 0)) return;
       const type = t.kind === 'inc' ? 'inc' : 'exp';
       let cat = t.cat, conf = t.how === 'none' ? 'low' : 'high';
       if (!cat || !catById(cat) || catById(cat).type !== type) { cat = fallbackCat(type); conf = 'low'; }
-      rows.push({ sel: true, d: t.date || today, dateGuess: !t.date, m: t.merchant || 'Unnamed', raw: t.raw, amt: t.amount, kind: t.kind, cat, acc: I.accountId, conf, learned: t.how === 'learned', fx: t.fx || '', dup: false });
+      rows.push({ g: gi, sel: true, d: t.date || today, dateGuess: !t.date, m: t.merchant || 'Unnamed', raw: t.raw, amt: t.amount, kind: t.kind, cat, acc, conf, learned: t.how === 'learned', fx: t.fx || '', dup: false });
     });
   });
-  const seen = new Set();
-  rows.forEach(r => {
-    const k = r.d + '|' + r.amt + '|' + r.kind + '|' + SnapParse.normKey(r.raw).slice(0, 8);
-    if (seen.has(k)) { r.dup = 'batch'; r.sel = false; return; }
-    seen.add(k);
-    const signed = r.kind === 'ref' ? -r.amt : r.amt, type = r.kind === 'inc' ? 'inc' : 'exp';
-    if (monthTx(ymOf(r.d)).some(t => t.d === r.d && t.acc === r.acc && t.type === type && Math.abs(t.amt - signed) < 0.005)) { r.dup = 'ledger'; r.sel = false; }
+  I.rows = rows; I.groups = groups; I.skipped = skipped; I.notes = notes.join(' '); I.status = 'review';
+  markDuplicates();
+}
+// Unticks lines seen twice across overlapping screenshots, or already in the ledger
+// (same card and amount, same day, or within 3 days for pending charges that post later).
+function markDuplicates() {
+  const I = S.imp, seen = new Set();
+  I.rows.forEach(r => {
+    const wasDup = r.dup;
+    r.dup = false;
+    if (!(r.amt > 0) || !r.raw) { if (wasDup && !r.dup) r.sel = true; return; }
+    const key5 = SnapParse.normKey(r.raw).slice(0, 5);
+    const k = [r.acc, r.d, r.amt, r.kind, key5].join('|');
+    if (seen.has(k)) r.dup = 'batch';
+    else {
+      seen.add(k);
+      const signed = r.kind === 'ref' ? -r.amt : r.amt, type = r.kind === 'inc' ? 'inc' : 'exp';
+      const months = [ymOf(r.d), addMonths(ymOf(r.d), -1), addMonths(ymOf(r.d), 1)];
+      const hit = months.some(ym => monthTx(ym).some(t => t.acc === r.acc && t.type === type && Math.abs(t.amt - signed) < 0.005 &&
+        (t.d === r.d || (dayDiff(t.d, r.d) <= 3 && SnapParse.normKey(t.raw || t.m).slice(0, 5) === key5))));
+      if (hit) r.dup = 'ledger';
+    }
+    if (r.dup && !wasDup) r.sel = false;
+    if (!r.dup && wasDup) r.sel = true;
   });
-  rows.sort((a, b) => a.d.localeCompare(b.d));
-  I.rows = rows; I.skipped = skipped; I.notes = notes.join(' '); I.status = 'review';
 }
 function addBlankRow() {
   const I = S.imp, last = I.rows[I.rows.length - 1];
-  I.rows.push({ sel: true, d: last ? last.d : todayISO(), dateGuess: false, m: '', raw: '', amt: NaN, kind: 'exp', cat: fallbackCat('exp'), acc: I.accountId, conf: 'high', learned: false, fx: '', dup: false });
+  if (!I.groups || !I.groups.length) I.groups = [{ label: 'Added by hand', thumb: '', acc: I.accountId, why: '', auto: false, signals: null, skipped: [] }];
+  const g = last ? last.g : I.groups.length - 1;
+  I.rows.push({ g, sel: true, d: last ? last.d : todayISO(), dateGuess: false, m: '', raw: '', amt: NaN, kind: 'exp', cat: fallbackCat('exp'), acc: I.groups[g].acc, conf: 'high', learned: false, fx: '', dup: false });
   render();
   const inputs = document.querySelectorAll('.rv [data-f="m"]');
   if (inputs.length) inputs[inputs.length - 1].focus();
@@ -839,6 +879,17 @@ function approveRows() {
   });
   const keys = Object.keys(rules);
   if (keys.length > 800) keys.slice(0, keys.length - 800).forEach(k => delete rules[k]);
+  // Remember which card each screen belonged to, so the next scan picks it automatically.
+  const hints = st().acctHints || (st().acctHints = {});
+  (I.groups || []).forEach((g, gi) => {
+    const used = sel.filter(r => r.g === gi);
+    if (!used.length || !g.signals) return;
+    const acc = used[0].acc;
+    (g.signals.last4 || []).forEach(n => { hints['n:' + n] = acc; });
+    if (g.signals.headKey) hints['h:' + g.signals.headKey] = acc;
+  });
+  const hk = Object.keys(hints);
+  if (hk.length > 200) hk.slice(0, hk.length - 200).forEach(k => delete hints[k]);
   Object.keys(touched).forEach(saveMonth);
   saveSettings();
   const topYm = Object.entries(count).sort((a, b) => b[1] - a[1])[0][0];
@@ -881,8 +932,9 @@ function renderSheet() {
       ${s.first ? '<p class="muted" style="margin-top:-8px">Add each card or account you track. You can add more later.</p>' : ''}
       <label class="field"><span>Name</span><input class="in" id="c-name" value="${esc(a ? a.name : '')}" placeholder="e.g. Rewards Visa" maxlength="40"></label>
       <div class="row2"><label class="field"><span>Last 4 digits</span><input class="in num" id="c-l4" inputmode="numeric" maxlength="4" value="${esc(a ? a.last4 : '')}" placeholder="1234"></label>
-      <label class="field"><span>Type</span><select class="in" id="c-kind">${[['credit', 'Credit card'], ['debit', 'Debit card'], ['cash', 'Cash'], ['other', 'Other']].map(([v, l]) => `<option value="${v}"${a && a.kind === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>
-      <p class="muted" style="font-size:13px;margin-top:0">The last 4 digits help match statement screenshots to the right card.</p>
+      <label class="field"><span>Type</span><select class="in" id="c-kind">${[['credit', 'Credit card'], ['debit', 'Debit card'], ['wallet', 'E-wallet'], ['cash', 'Cash'], ['other', 'Other']].map(([v, l]) => `<option value="${v}"${a && a.kind === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label></div>
+      <label class="field"><span>Words on its screen (optional)</span><input class="in" id="c-match" value="${esc(a ? a.match || '' : '')}" placeholder="e.g. a word from the app's header" maxlength="80"></label>
+      <p class="muted" style="font-size:13px;margin-top:0">Screenshots are matched to a card by its last 4 digits, its name, or these words. If a card's app shows more than 4 digits, enter the last 4. E-wallets can go without digits.</p>
       <div class="sheet-actions">${a ? '<button class="btn danger" data-act="del-card">Delete</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="save-card">Save</button></div>`;
   } else if (s.kind === 'settings') {
     const ruleN = Object.keys(st().rules || {}).length;
@@ -940,11 +992,11 @@ function saveTx() {
   closeSheet(); render(); toast('Saved.');
 }
 function saveCard() {
-  const name = $('#c-name').value.trim(), l4 = $('#c-l4').value.replace(/\D/g, '').slice(-4), kind = $('#c-kind').value;
+  const name = $('#c-name').value.trim(), l4 = $('#c-l4').value.replace(/\D/g, '').slice(-4), kind = $('#c-kind').value, match = $('#c-match').value.trim().slice(0, 80);
   if (!name) return toast('Give the card a name.');
   const s = S.sheet;
-  if (s.id) Object.assign(accById(s.id), { name, last4: l4, kind });
-  else st().accounts.push({ id: newId(), name, last4: l4, kind });
+  if (s.id) Object.assign(accById(s.id), { name, last4: l4, kind, match });
+  else st().accounts.push({ id: newId(), name, last4: l4, kind, match });
   saveSettings(); closeSheet(); render(); toast(s.id ? 'Card updated.' : 'Card added.');
 }
 
@@ -1035,7 +1087,7 @@ document.addEventListener('click', e => {
     case 'imp-back': S.imp.status = 'idle'; S.imp.rows = []; render(); break;
     case 'imp-reset': resetImport(); render(); break;
     case 'imp-approve': approveRows(); break;
-    case 'rv-all': { const all = S.imp.rows.every(r => r.sel); S.imp.rows.forEach(r => r.sel = !all); $('#rv-list').innerHTML = S.imp.rows.map(vRow).join(''); $('#rv-foot').innerHTML = vFoot(); b.textContent = all ? 'Tick all' : 'Untick all'; break; }
+    case 'rv-all': { const all = S.imp.rows.every(r => r.sel); S.imp.rows.forEach(r => r.sel = !all); $('#rv-list').innerHTML = vGroups(); $('#rv-foot').innerHTML = vFoot(); b.textContent = all ? 'Tick all' : 'Untick all'; break; }
   }
 });
 
@@ -1060,6 +1112,14 @@ function onField(e, isChange) {
     if (el.dataset.set === 'catname') { const c = catById(el.dataset.id); const v = el.value.trim(); if (c && v) { c.name = v.slice(0, 32); saveSettings(); render(); } }
     return;
   }
+  if (el.classList && el.classList.contains('grp-acc') && isChange) {
+    const gi = +el.dataset.g, g = S.imp.groups[gi]; if (!g) return;
+    g.acc = el.value; g.auto = true; g.why = 'your choice';
+    S.imp.rows.forEach(r => { if (r.g === gi) r.acc = el.value; });
+    markDuplicates();
+    $('#rv-list').innerHTML = vGroups(); const foot = $('#rv-foot'); if (foot) foot.innerHTML = vFoot();
+    return;
+  }
   if ((el.id === 'bulk-cat' || el.id === 'bulk-acc') && isChange) {
     const v = el.value; if (!v) return;
     let n = 0;
@@ -1068,7 +1128,7 @@ function onField(e, isChange) {
       if (el.id === 'bulk-acc') { r.acc = v; n++; }
       else if (r.kind !== 'inc') { r.cat = v; r.conf = 'high'; r.learned = false; n++; }
     });
-    $('#rv-list').innerHTML = S.imp.rows.map(vRow).join(''); el.value = '';
+    $('#rv-list').innerHTML = vGroups(); el.value = '';
     toast(`Updated ${n} ticked line${n === 1 ? '' : 's'}.`);
     return;
   }
@@ -1111,4 +1171,5 @@ async function boot() {
   }
 }
 boot();
+if (/[?&]debug\b/.test(location.search)) window.__snap = { prepImage, tsvToText, initOcr, ocrCall: (m, t) => ocrCall(m, t), S };
 })();

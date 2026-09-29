@@ -15,6 +15,8 @@ self.onmessage = async (e) => {
       self.postMessage({ id: d.id, ok: true });
     } else if (d.type === 'rec') {
       M.FS.writeFile('/input', new Uint8Array(d.image));
+      api.SetVariable('tessedit_pageseg_mode', String(d.psm || 3));
+      if (d.vars) Object.keys(d.vars).forEach(k => api.SetVariable(k, String(d.vars[k])));
       if (api.SetImageFile(1, 0) === 1) throw new Error('image not readable');
       api.Recognize(null);
       const tsv = api.GetTSVText(0);
