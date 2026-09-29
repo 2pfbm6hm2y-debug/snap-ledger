@@ -1,5 +1,5 @@
 /* Snap Ledger service worker: makes the app open and scan offline. */
-const APP_CACHE = 'snapledger-app-1.5.0';
+const APP_CACHE = 'snapledger-app-1.5.1';
 const LIB_CACHE = 'snapledger-lib-1';
 const FONT_CACHE = 'snapledger-fonts-1';
 const APP_FILES = ['./', './index.html', './app.js', './parse.js', './ocr-worker.js', './manifest.webmanifest',
@@ -10,7 +10,8 @@ const LIB_FILES = ['./lib/pdf.min.js', './lib/pdf.worker.min.js', './lib/tessera
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const app = await caches.open(APP_CACHE);
-    await app.addAll(APP_FILES);
+    // cache: 'reload' skips the browser's HTTP cache so a new version never precaches old files.
+    await app.addAll(APP_FILES.map(u => new Request(u, { cache: 'reload' })));
     const lib = await caches.open(LIB_CACHE);
     await Promise.all(LIB_FILES.map(async u => { if (!(await lib.match(u))) { try { await lib.add(u); } catch (x) {} } }));
     await self.skipWaiting();
@@ -42,7 +43,8 @@ self.addEventListener('fetch', e => {
     e.respondWith((async () => {
       const c = await caches.open(APP_CACHE);
       try {
-        const res = await fetch(req);
+        // Always check with the server (cheap when unchanged) so updates show on the next open.
+        const res = await fetch(url.href, { cache: 'no-cache', credentials: 'same-origin' });
         if (res.ok) c.put(req, res.clone());
         return res;
       } catch (err) {

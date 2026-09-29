@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1318,7 +1318,18 @@ async function boot() {
   await Store.init();
   if (S.demo && S.mode === 'device' && !lsGet('snapledger:welcomed')) openSheet({ kind: 'welcome', step: 0 });
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    // A new version took over: reload into it, unless you're in the middle of something.
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloading) return;
+      if (S.imp.status !== 'idle' || S.sheet || S.imp.files.length || (S.imp.text || '').trim()) { toast('An update is ready. It loads the next time you open the app.'); return; }
+      reloading = true; location.reload();
+    });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+      // Home Screen apps often resume without reloading, so look for updates whenever the app comes back.
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => {});
   }
 }
 boot();
