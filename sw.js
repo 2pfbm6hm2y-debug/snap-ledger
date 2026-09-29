@@ -1,5 +1,5 @@
 /* Snap Ledger service worker: makes the app open and scan offline. */
-const APP_CACHE = 'snapledger-app-1.9.1';
+const APP_CACHE = 'snapledger-app-1.9.2';
 const LIB_CACHE = 'snapledger-lib-1';
 const FONT_CACHE = 'snapledger-fonts-1';
 const APP_FILES = ['./', './index.html', './app.js', './parse.js', './ocr-worker.js', './manifest.webmanifest',

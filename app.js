@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.9.1';
+const APP_VERSION = '1.9.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1348,7 +1348,7 @@ function renderSheet() {
       <div class="sheet-actions"><button class="btn" data-act="backup">Back up now</button><label class="btn" for="restore-file">Restore backup</label></div>
       <button class="btn wide" data-act="export" style="margin-top:10px">Export all as CSV</button>
       <div class="sub-h">Display</div>
-      <label class="field"><span>When you add entries</span><select class="in" data-set="celebrate">${[['sweep', 'Bunny sweeps up the screen'], ['screen', 'Success screen with the bunny'], ['hop', 'Bunny hop'], ['off', 'Just a message']].map(([v, l]) => `<option value="${v}"${celebrateMode() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="field"><span>When you add entries</span><select class="in" data-set="celebrate">${[['screen', 'Success screen with the bunny'], ['sweep', 'Bunny sweeps up the screen'], ['hop', 'Bunny hop'], ['off', 'Just a message']].map(([v, l]) => `<option value="${v}"${celebrateMode() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="field"><span>Currency symbol</span><input class="in" data-set="cur" value="${esc(cur())}" maxlength="4" style="max-width:120px"></label>
       <div class="sub-h">Expense categories</div><p class="muted" style="font-size:13px;margin:-4px 0 8px">Use the arrows to set the order they appear in across the app.</p><div class="cat-list">${cats().filter(c => c.type === 'exp').map(catRow).join('')}</div>
       <div class="sub-h">Income categories</div><div class="cat-list">${cats().filter(c => c.type === 'inc').map(catRow).join('')}</div>
@@ -1455,9 +1455,9 @@ function confettiBits(at, n) {
   }
   return bits;
 }
-// How adding entries is celebrated: 'sweep' (quick leap up the screen), 'screen' (full success
+// How adding entries is celebrated: 'screen' (full success screen), 'sweep' (quick leap up the
 // screen), 'hop' (small bunny hop) or 'off'.
-const celebrateMode = () => { const s = st() || {}; return s.celebrate || (s.bunny === false ? 'off' : 'sweep'); };
+const celebrateMode = () => { const s = st() || {}; return s.celebrate || (s.bunny === false ? 'off' : 'screen'); };
 // info: { badge: short hop label, title, sub }. fallback: the plain message used when motion is off.
 function celebrate(info, fallback) {
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches, mode = celebrateMode();
