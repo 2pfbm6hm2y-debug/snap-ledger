@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.8.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -461,7 +461,10 @@ function vLedger() {
   const catSpend = {};
   all.forEach(t => { if ((t.type === 'exp' || t.type === 'inc') && (!S.filterAcc || t.acc === S.filterAcc)) catSpend[t.cat] = (catSpend[t.cat] || 0) + Math.abs(t.amt); });
   if (S.filterCat && !catSpend[S.filterCat]) catSpend[S.filterCat] = 0;
-  const catChips = selFirst(Object.keys(catSpend).sort((x, y) => catSpend[y] - catSpend[x]).map(id => ({ id, label: catName(id) })), S.filterCat);
+  // Categories with entries this month, in your order from Settings.
+  const known = cats().filter(c => c.id in catSpend).map(c => ({ id: c.id, label: c.name }));
+  const orphan = Object.keys(catSpend).filter(id => !catById(id)).map(id => ({ id, label: catName(id) }));
+  const catChips = selFirst(known.concat(orphan), S.filterCat);
   h += `<div class="chips" role="group" aria-label="Filter by card">
     <button class="chip${!S.filterAcc ? ' on' : ''}" data-act="filter-acc" data-id="">All cards</button>
     ${accChips.map(c => `<button class="chip${S.filterAcc === c.id ? ' on' : ''}" data-act="filter-acc" data-id="${esc(c.id)}">${esc(c.label)}</button>`).join('')}
