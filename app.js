@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.6.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1080,6 +1080,9 @@ function buildRows(results, notes) {
       const a = accById(acc);
       const dirIn = (p.kind === 'payment' && isLiab(a)) || (p.kind === 'topup' && a && a.kind === 'wallet') || !!p.credit;
       const other = dirIn ? suggestFrom(acc) : suggestTo(acc, p.raw, p.kind);
+      // A top-up only moves money if a wallet is on one side. Otherwise it's inside one account.
+      const wallet = id => !!(accById(id) && accById(id).kind === 'wallet');
+      if (p.kind === 'topup' && !wallet(acc) && !wallet(other)) { left.push(p); return; }
       if (!(p.amount > 0) || !(bals[acc] || bals[other])) { left.push(p); return; }
       rows.push({ g: gi, sel: true, d: p.date || today, dateGuess: !p.date || p.dateGuessed, dateCarried: !!p.dateCarried, m: p.kind === 'topup' ? 'Top-up' : 'Card payment', raw: p.raw, amt: p.amount, kind: 'xfer', dir: dirIn ? 'in' : 'out', from: dirIn ? other : acc, to: dirIn ? acc : other, cat: fallbackCat('exp'), acc, conf: 'high', learned: false, fx: '', dup: false });
     });
