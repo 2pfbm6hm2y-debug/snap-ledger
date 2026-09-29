@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.5.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -468,8 +468,11 @@ function dailySection(ym, withB) {
   for (let k = 0; k < lead; k++) cells += '<span class="cal-d blank"></span>';
   for (let d = 1; d <= days; d++) {
     const v = round2(byDay[d]), iso = ym + '-' + pad(d), fut = d > upto, over = !fut && v > allow + 0.004;
-    const cls = fut ? 'fut' : over ? 'over' : v > 0.004 ? 'in' : 'zero';
-    const label = `${dayLabel(iso)}: ${v > 0.004 ? money(v) : 'no spending'}${over ? ', ' + money(v - allow) + ' above the daily allowance' : ''}`;
+    // Heat steps by how far above the allowance: up to +25%, +75%, +150%, beyond.
+    const ratio = allow > 0 ? v / allow : 0;
+    const heat = ratio <= 1.25 ? 'h1' : ratio <= 1.75 ? 'h2' : ratio <= 2.5 ? 'h3' : 'h4';
+    const cls = fut ? 'fut' : over ? 'over ' + heat : v > 0.004 ? 'in' : 'zero';
+    const label = `${dayLabel(iso)}: ${v > 0.004 ? money(v) : 'no spending'}${over ? ', ' + money(v - allow) + ' (' + Math.round((ratio - 1) * 100) + '%) above the daily allowance' : ''}`;
     cells += `<button class="cal-d ${cls}" data-act="drill-day" data-id="${esc(sel)}" data-d="${iso}" aria-label="${esc(label)}"${fut && !v ? ' disabled' : ''}>
       <span class="cal-n">${d}</span><span class="cal-v">${v > 0.004 ? short(v) : ''}</span></button>`;
   }
@@ -479,7 +482,9 @@ function dailySection(ym, withB) {
     <p class="daily-sum">Daily allowance <b class="num">${money(allow)}</b> <span class="muted">(${money(c.budget, 0)} ÷ ${days} days)</span><br>
     ${upto ? (overDays ? `Above it on <b class="t-warn">${overDays} of ${upto} day${upto === 1 ? '' : 's'}</b>${ym === nowYm ? ' so far' : ''}, by <span class="num">${money(overAmt, 0)}</span> in total.` : `Within it every day${ym === nowYm ? ' so far' : ''}.`) : 'This month hasn\'t started.'}</p>
     <div class="cal">${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(w => `<span class="cal-w">${w}</span>`).join('')}${cells}</div>
-    <div class="cal-legend"><span><i class="sw over"></i>Above allowance</span><span><i class="sw in"></i>Within</span><span><i class="sw zero"></i>No spending</span></div>
+    <p class="heat-cap">How far above the daily allowance</p>
+    <div class="heat-scale"><span><i class="sw h1"></i>up to 25%</span><span><i class="sw h2"></i>25–75%</span><span><i class="sw h3"></i>75–150%</span><span><i class="sw h4"></i>over 150%</span></div>
+    <div class="cal-legend"><span><i class="sw in"></i>Within allowance</span><span><i class="sw zero"></i>No spending</span></div>
     <p class="muted" style="font-size:12px;margin:8px 0 0">Amounts in ${esc(cur())}. Tap a day to see its transactions.</p>
   </section>`;
 }
