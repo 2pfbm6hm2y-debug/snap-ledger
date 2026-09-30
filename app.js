@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.10.1';
+const APP_VERSION = '1.11.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -609,6 +609,7 @@ function statsByCategory(ym, seg) {
     h += `<p class="muted" style="font-size:14px">Set monthly budgets to see whether you're on track.</p><button class="btn small" data-act="tab" data-tab="budget">Set budgets</button>`;
   }
   h += `</section>`;
+  h += savingsSection(ym);
   if (!total && !totalB) return h + `<div class="empty"><b>No spending in ${esc(monthLabel(ym))}</b>Scan a statement or add a transaction.</div>` + trendSection(ym, null);
 
   if (withB.length) {
@@ -635,6 +636,49 @@ function statsByCategory(ym, seg) {
     }).join('') + `</section>`;
   }
   return h;
+}
+// What you kept each month: income minus everything spent, outside-budget spending included.
+// Transfers (card bills, moving money to savings or investments) don't count either way.
+function monthFlow(ym) {
+  let inc = 0, sp = 0;
+  monthTx(ym).forEach(t => { if (t.type === 'inc') inc += t.amt; else if (t.type === 'exp') sp += t.amt; });
+  return { ym, inc: round2(inc), sp: round2(sp), saved: round2(inc - sp) };
+}
+function savingsSection(ym) {
+  const head = `<section class="sec" id="savings"><div class="sec-h"><h2>Savings</h2><span class="muted" style="font-size:13px">Income minus spending</span></div>`;
+  // Count from the first month you recorded income, so months tracked before that don't drag it down.
+  const since = Object.keys(mo()).filter(m => monthTx(m).some(t => t.type === 'inc')).sort()[0];
+  if (!since || since > ym) {
+    return head + `<p style="font-size:14px;margin:0 0 10px">See how much you keep each month. Record your salary as <b>Income</b> on the account it's paid into, and this shows what's left after spending.</p>
+      <button class="btn small" data-act="new-income">Add income</button></section>`;
+  }
+  const isNow = ym === ymOf(todayISO()), f = monthFlow(ym);
+  const months = []; for (let k = -5; k <= 0; k++) { const m = addMonths(ym, k); if (m >= since) months.push(monthFlow(m)); }
+  const all = []; for (let m = since; m <= ym; m = addMonths(m, 1)) all.push(monthFlow(m));
+  const total = round2(all.reduce((n, x) => n + x.saved, 0));
+  let streak = 0; for (let i = all.length - 1; i >= 0 && all[i].saved > 0; i--) streak++;
+  const best = all.length > 1 && f.saved > 0 && all.every(x => x.saved <= f.saved);
+  const rate = f.inc > 0 ? Math.round(f.saved / f.inc * 100) : null;
+  let h = head;
+  if (f.inc <= 0) h += `<div class="big">${money(-f.sp)} <small>no income yet${isNow ? ' this month' : ''}</small></div>`;
+  else h += `<div class="big ${f.saved >= 0 ? 't-good' : 't-bad'}">${money(Math.abs(f.saved))} <small>${f.saved >= 0 ? 'saved' : 'more spent than earned'}${isNow ? ' so far' : ''}</small></div>`;
+  h += `<div class="pace-note" style="margin-top:4px">Income <span class="num">${money(f.inc)}</span>, spending <span class="num">${money(f.sp)}</span>${rate !== null && f.saved > 0 ? `. That's <b>${rate}%</b> of your income kept.` : '.'}</div>`;
+  const cheers = [];
+  if (best) cheers.push(`Your best month since ${monthLabel(since)}.`);
+  if (streak >= 2) cheers.push(`${streak} months in a row with money saved.`);
+  if (cheers.length) h += `<p class="save-cheer">${esc(cheers.join(' '))}</p>`;
+  if (months.length > 1) {
+    const max = Math.max(1, ...months.map(x => Math.abs(x.saved)));
+    h += `<div class="sp-head" style="margin-top:12px"><span></span><span></span><span>Saved</span><span>Of income</span></div>` + months.map(x => {
+      const w = (Math.abs(x.saved) / max * 100).toFixed(1), r = x.inc > 0 ? Math.round(x.saved / x.inc * 100) + '%' : '–';
+      return `<button class="sp-row${x.ym === ym ? ' cur' : ''}" data-act="goto-month" data-ym="${x.ym}" aria-label="${esc(monthLabel(x.ym))}: ${money(x.saved)} saved">
+        <span class="sp-m">${esc(monthShort(x.ym))}</span>
+        <span class="sp-track"><span class="save-fill ${x.saved >= 0 ? 'up' : 'down'}" style="width:${w}%"></span></span>
+        <span class="num sp-v ${x.saved >= 0 ? 't-good' : 't-bad'}">${money(x.saved, 0)}</span><span class="num sp-c">${r}</span></button>`;
+    }).join('');
+  }
+  h += `<p class="muted" style="font-size:12px;margin:8px 0 0">Saved since ${esc(monthLabel(since))}: <b class="num ${total >= 0 ? 't-good' : 't-bad'}">${money(total)}</b>. Transfers, like moving money to savings or paying a card bill, don't count as spending.</p>`;
+  return h + `</section>`;
 }
 // Running total for the year of categories kept outside the monthly budget.
 function specialYear(ym) {
@@ -1305,7 +1349,7 @@ function welcomeSteps() {
   steps.push({
     icon: ICON.budget,
     title: 'Set budgets and track',
-    body: `<p>Set a monthly amount per category in <b>Budget</b>. <b>Stats</b> then shows each one as <b class="t-good">On track</b>, <b class="t-warn">At risk</b> (above today's pace) or <b class="t-bad">Over</b>.</p><ul><li>The day-by-day calendar shows which days went over the daily allowance, and the six-month trend compares each month with its budget.</li><li>Big one-offs like flights go in <b>Special Spending</b>, which sits outside the monthly budget and gets a running total for the year.</li><li>Rename, reorder or add categories in Settings.</li></ul>`
+    body: `<p>Set a monthly amount per category in <b>Budget</b>. <b>Stats</b> then shows each one as <b class="t-good">On track</b>, <b class="t-warn">At risk</b> (above today's pace) or <b class="t-bad">Over</b>.</p><ul><li>The day-by-day calendar shows which days went over the daily allowance, and the six-month trend compares each month with its budget.</li><li>Big one-offs like flights go in <b>Special Spending</b>, which sits outside the monthly budget and gets a running total for the year.</li><li>Record your salary as Income, and Stats shows how much you save each month.</li><li>Rename, reorder or add categories in Settings.</li></ul>`
   });
   steps.push({
     icon: ICON.wallet,
@@ -1345,9 +1389,9 @@ function renderSheet() {
         <div class="sheet-actions"><button class="btn danger" data-act="del-tx">Delete</button><button class="btn" data-act="close-sheet">Close</button></div>`;
       return;
     }
-    const k = t ? kindOf(t) : 'exp';
+    const k = t ? kindOf(t) : (s.kind0 || 'exp');
     const type = k === 'inc' ? 'inc' : 'exp', isX = k === 'xfer';
-    const defAcc = t ? t.acc : (S.filterAcc || (accts()[0] || {}).id);
+    const defAcc = t ? t.acc : (S.filterAcc || (k === 'inc' && (accts().find(a => a.kind === 'debit') || {}).id) || (accts()[0] || {}).id);
     const defTo = t && t.to ? t.to : suggestTo(defAcc);
     const defDate = t ? t.d : (S.month === ymOf(todayISO()) ? todayISO() : S.month + '-01');
     el.innerHTML = `<div class="grab"></div><h2>${t ? (isX ? 'Edit transfer' : 'Edit transaction') : 'New transaction'}</h2>
@@ -1617,6 +1661,7 @@ document.addEventListener('click', e => {
     case 'drill-acc': S.filterAcc = id; S.filterCat = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0); break;
     case 'stats-by': S.statsBy = b.dataset.by; render(); break;
     case 'new-tx': openSheet({ kind: 'txn', id: null }); break;
+    case 'new-income': openSheet({ kind: 'txn', id: null, kind0: 'inc' }); break;
     case 'edit-tx': openSheet({ kind: 'txn', id, ym: b.dataset.ym }); break;
     case 'save-tx': saveTx(); break;
     case 'sugg': { const x = S.sheet && S.sheet.sugg && S.sheet.sugg[+b.dataset.k]; if (x) applySugg(x); break; }
