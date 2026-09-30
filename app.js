@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.12.3';
+const APP_VERSION = '1.12.4';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -692,7 +692,7 @@ function savingsSection(ym) {
   let h = head;
   if (ahead) {
     h += `<div class="big ${saved >= 0 ? 't-good' : 't-bad'}">${money(Math.abs(saved))} <small>${saved >= 0 ? 'projected to save' : 'projected shortfall'}</small></div>`;
-    h += `<div class="pace-note" style="margin-top:4px">${cur.incExpected ? 'Expected income' : 'Income'} <span class="num">${money(cur.inc)}</span>, minus spending of <span class="num">${money(cur.sp)}</span> if every category ends at its budget (or where it already is, if over).${ym === nowYm ? (cur.actual.inc > 0 ? ` Saved so far: <span class="num">${money(cur.actual.saved)}</span>.` : ` Spent so far: <span class="num">${money(cur.actual.sp)}</span>, with no income recorded yet.`) : ''}</div>`;
+    h += `<div class="pace-note" style="margin-top:4px">${cur.incExpected ? 'Expected income' : 'Income'} <span class="num">${money(cur.inc)}</span>, minus spending of <span class="num">${money(cur.sp)}</span> if every category ends at its budget (or where it already is, if over).</div>`;
   } else {
     h += `<div class="big ${saved >= 0 ? 't-good' : 't-bad'}">${money(Math.abs(saved))} <small>${saved >= 0 ? 'saved' : 'more spent than earned'}</small></div>`;
     h += `<div class="pace-note" style="margin-top:4px">Income <span class="num">${money(cur.inc)}</span>, spending <span class="num">${money(cur.sp)}</span>${cur.inc > 0 && saved > 0 ? `. That's <b>${Math.round(saved / cur.inc * 100)}%</b> of your income kept.` : '.'}</div>`;
