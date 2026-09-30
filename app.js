@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.12.2';
+const APP_VERSION = '1.12.3';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -603,7 +603,7 @@ function statsByCategory(ym, seg) {
 
   let h = `<section class="sec"><div class="sec-h"><h2>This month</h2>${seg}</div>
     <div class="big">${money(total)} <small>spent</small></div>
-    ${special > 0.004 ? `<div class="pace-note" style="margin-top:4px">Plus <span class="num">${money(special)}</span> outside the monthly budget, shown in the yearly view below.</div>` : ''}`;
+    ${saveLine(ym, special)}`;
   if (totalB) {
     const st0 = budgetStatus(spentB, totalB, frac), left = totalB - spentB;
     h += `<div class="bar-top" style="margin-top:12px"><span class="num">${money(spentB, 0)} of ${money(totalB, 0)} budget</span><span class="pill ${st0.k}">${st0.icon}${esc(st0.label)}</span></div>
@@ -660,13 +660,28 @@ function projectMonth(ym) {
   const inc = Math.max(f.inc, exp);
   return { inc: round2(inc), incExpected: exp > f.inc, sp: round2(spend), saved: round2(inc - spend), actual: f };
 }
+// Savings count from the first month with income recorded (or this month, once expected income is set).
+function savingsSince() {
+  const nowYm = ymOf(todayISO());
+  let since = Object.keys(mo()).filter(m => monthTx(m).some(t => t.type === 'inc')).sort()[0];
+  if (st().expIncome > 0 && (!since || since > nowYm)) since = nowYm;
+  return since;
+}
+// One line under This month: projected (or actual) savings against the target. Falls back to the
+// outside-budget note until savings can be worked out.
+function saveLine(ym, special) {
+  const since = savingsSince(), nowYm = ymOf(todayISO());
+  if (!since || since > ym) return special > 0.004 ? `<div class="pace-note" style="margin-top:4px">Plus <span class="num">${money(special)}</span> outside the monthly budget, shown in the yearly view below.</div>` : '';
+  const proj = ym >= nowYm, saved = (proj ? projectMonth(ym) : monthFlow(ym)).saved, target = st().saveTarget > 0 ? st().saveTarget : 0;
+  const verb = proj ? (saved >= 0 ? 'Projected to save' : 'Projected shortfall') : (saved >= 0 ? 'Saved' : 'Spent more than earned by');
+  const pct = target && saved > 0 ? ` · ${Math.round(saved / target * 100)}% of your <span class="num">${money(target)}</span> target` : '';
+  return `<button class="save-line" data-act="goto-savings"><span>${verb} <b class="num ${saved >= 0 ? (target && saved < target ? '' : 't-good') : 't-bad'}">${money(Math.abs(saved))}</b>${pct}</span><span class="chev" aria-hidden="true">›</span></button>`;
+}
 function savingsSection(ym) {
   const s = st(), target = s.saveTarget > 0 ? s.saveTarget : 0, expInc = s.expIncome > 0 ? s.expIncome : 0;
   const nowYm = ymOf(todayISO()), ahead = ym >= nowYm;
   const head = `<section class="sec" id="savings"><div class="sec-h"><h2>Savings</h2><span class="muted" style="font-size:13px">${target ? `Target <span class="num">${money(target, 0)}</span> a month` : 'Income minus spending'}</span></div>`;
-  // Count from the first month with income recorded (or this month, once expected income is set).
-  let since = Object.keys(mo()).filter(m => monthTx(m).some(t => t.type === 'inc')).sort()[0];
-  if (expInc && (!since || since > nowYm)) since = nowYm;
+  const since = savingsSince();
   if (since && since > ym) return head + `<p class="muted" style="font-size:14px;margin:0">No income recorded for ${esc(monthLabel(ym))}, so there's nothing to compare yet.</p></section>`;
   if (!since) {
     return head + `<p style="font-size:14px;margin:0 0 10px">See how much you keep each month. Set your expected income and a savings target in the Budget tab, and record your salary as <b>Income</b> when it comes in.</p>
@@ -1740,6 +1755,7 @@ document.addEventListener('click', e => {
       toast(c.outside ? `${c.name} is now outside the monthly budget.` : `${c.name} is back in the monthly budget.`);
       break;
     }
+    case 'goto-savings': { const el = document.getElementById('savings'); if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -70); } break; }
     case 'drill-special': {
       const oc = cats().filter(c => c.type === 'exp' && c.outside);
       S.month = b.dataset.ym; S.filterCat = oc.length === 1 ? oc[0].id : null; S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0);
