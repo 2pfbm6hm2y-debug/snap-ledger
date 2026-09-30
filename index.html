@@ -92,6 +92,10 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:8px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .chips.wrap{flex-wrap:wrap;overflow:visible}
+.chips.sugg{margin:-6px 0 12px}
+.chips.sugg .chip{display:block;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:30px}
+.in.filled{animation:fill-flash .9s ease-out}
+@keyframes fill-flash{from{background:var(--accent-soft);border-color:var(--accent)}}
 .chip{flex:none;height:32px;padding-inline:12px;border-radius:16px;border:1px solid var(--line);background:var(--surface);font-size:13px;font-weight:500;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px}
 .chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 

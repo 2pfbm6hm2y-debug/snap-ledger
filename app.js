@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.9.2';
+const APP_VERSION = '1.10.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -388,6 +388,52 @@ function suggestTo(from, raw, kind) {
   return c ? c.id : '';
 }
 function rememberPayFrom(from, to) { if (!accById(from) || !accById(to)) return; (st().payFrom || (st().payFrom = {}))[to] = from; }
+
+/* ---------- quick picks when adding by hand ----------
+   Merchants you've used, ranked by how often and how recently. Each one remembers the category and
+   card you usually pair with it (the most common pair in its last 8 uses, ties to the latest). */
+function merchantIndex() {
+  const now = Date.now(), map = new Map();
+  allTx().forEach(t => {
+    if ((t.type !== 'exp' && t.type !== 'inc') || !t.m) return;
+    const k = t.m.trim().toLowerCase(); if (!k || k === 'unnamed') return;
+    const age = (now - new Date(t.d + 'T00:00:00')) / 864e5;
+    let e = map.get(k); if (!e) map.set(k, e = { k, score: 0, uses: [] });
+    e.score += age <= 60 ? 1 : age <= 180 ? 0.5 : 0.2;
+    e.uses.push(t);
+  });
+  return [...map.values()].map(e => {
+    e.uses.sort((a, b) => b.d.localeCompare(a.d) || (b.t || 0) - (a.t || 0));
+    const tally = {};
+    e.uses.slice(0, 8).forEach((t, i) => { const key = [t.type, t.cat, t.acc].join('|'); tally[key] = (tally[key] || 0) + 1 - i * 0.01; });
+    const [type, cat, acc] = Object.entries(tally).sort((a, b) => b[1] - a[1])[0][0].split('|');
+    return { name: e.uses[0].m.trim(), key: e.k, score: e.score, latest: e.uses[0].d, type, cat, acc };
+  }).filter(x => catById(x.cat) && accById(x.acc)).sort((a, b) => b.score - a.score || b.latest.localeCompare(a.latest));
+}
+// Top picks for an empty box; otherwise names starting with what you typed, then words starting with it, then anything containing it.
+function suggFor(q) {
+  const s = S.sheet || {}, all = s.mIndex || (s.mIndex = merchantIndex());
+  q = (q || '').trim().toLowerCase();
+  if (!q) return all.slice(0, 8);
+  const starts = [], words = [], has = [];
+  all.forEach(x => { if (x.key.startsWith(q)) starts.push(x); else if (x.key.split(/[^a-z0-9]+/).some(w => w.startsWith(q))) words.push(x); else if (x.key.includes(q)) has.push(x); });
+  return starts.concat(words, has).slice(0, 8);
+}
+function suggHtml(list) {
+  if (S.sheet) S.sheet.sugg = list;
+  if (!list.length) return '';
+  return `<div class="chips sugg" role="group" aria-label="Merchants you use often">${list.map((x, i) => `<button type="button" class="chip" data-act="sugg" data-k="${i}" aria-label="${esc(x.name)}, ${esc(catName(x.cat))}, ${esc(accShort(x.acc))}">${esc(x.name)}</button>`).join('')}</div>`;
+}
+function applySugg(x) {
+  $('#f-m').value = x.name;
+  const kind = $('#f-kind'), type = x.type === 'inc' ? 'inc' : 'exp';
+  if (type === 'inc') kind.value = 'inc'; else if (kind.value !== 'ref') kind.value = 'exp';
+  $('#f-cat').innerHTML = catOptions(type, x.cat);
+  $('#f-acc').value = x.acc;
+  ['#f-cat', '#f-acc'].forEach(sel => { const e = $(sel); e.classList.remove('filled'); void e.offsetWidth; e.classList.add('filled'); });
+  $('#f-sugg').innerHTML = '';
+  const a = $('#f-amt'); if (a && !a.value) a.focus();
+}
 
 /* ---------- options ---------- */
 const catOptions = (type, sel) => cats().filter(c => c.type === type).map(c => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
@@ -1299,6 +1345,9 @@ function renderSheet() {
     const defDate = t ? t.d : (S.month === ymOf(todayISO()) ? todayISO() : S.month + '-01');
     el.innerHTML = `<div class="grab"></div><h2>${t ? (isX ? 'Edit transfer' : 'Edit transaction') : 'New transaction'}</h2>
       ${accts().length ? '' : '<div class="err">Add a card first in the Cards tab.</div>'}
+      <label class="field"><span>Merchant or note</span><input class="in" id="f-m" value="${esc(t ? t.m : '')}" maxlength="60" autocomplete="off" autocorrect="off" enterkeyhint="next"></label>
+      ${t && t.raw ? `<p class="raw num" style="margin:-4px 0 12px">Statement: ${esc(t.raw)}</p>` : ''}
+      ${t ? '' : `<div id="f-sugg"${isX ? ' hidden' : ''}>${suggHtml(suggFor(''))}</div>`}
       <div class="row2"><label class="field"><span>Type</span><select class="in" id="f-kind">${kindOptions(k, accts().length > 1)}</select></label>
       <label class="field"><span>Amount</span><input class="in num" id="f-amt" inputmode="decimal" value="${t ? Math.abs(t.amt).toFixed(2) : ''}" placeholder="0.00"></label></div>
       <div class="row2"><label class="field"><span>Date</span><input class="in" id="f-date" type="date" value="${esc(defDate)}"></label>
@@ -1306,8 +1355,6 @@ function renderSheet() {
       <label class="field" id="f-to-w"${isX ? '' : ' hidden'}><span>To</span><select class="in" id="f-to">${accOptions(defTo)}</select></label>
       <p class="muted" id="f-x-note" style="font-size:13px;margin-top:-4px"${isX ? '' : ' hidden'}>A transfer moves money between your own accounts, like paying a card bill or topping up a wallet. It isn't spending.</p>
       <label class="field" id="f-cat-w"${isX ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptions(type, t && t.cat ? t.cat : (S.filterCat || firstCat(type)))}</select></label>
-      <label class="field"><span>Merchant or note</span><input class="in" id="f-m" value="${esc(t ? t.m : '')}" maxlength="60"></label>
-      ${t && t.raw ? `<p class="raw num" style="margin:-4px 0 12px">Statement: ${esc(t.raw)}</p>` : ''}
       <div class="sheet-actions">${t ? '<button class="btn danger" data-act="del-tx">Delete</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="save-tx">Save</button></div>`;
   } else if (s.kind === 'card') {
     const a = s.id ? accById(s.id) : null;
@@ -1547,6 +1594,7 @@ document.addEventListener('click', e => {
     case 'new-tx': openSheet({ kind: 'txn', id: null }); break;
     case 'edit-tx': openSheet({ kind: 'txn', id, ym: b.dataset.ym }); break;
     case 'save-tx': saveTx(); break;
+    case 'sugg': { const x = S.sheet && S.sheet.sugg && S.sheet.sugg[+b.dataset.k]; if (x) applySugg(x); break; }
     case 'del-tx':
       if (b.dataset.armed) { const s = S.sheet; mo()[s.ym].txns = monthTx(s.ym).filter(x => x.id !== s.id); saveMonth(s.ym); closeSheet(); render(); toast('Deleted.'); }
       else { b.dataset.armed = '1'; b.textContent = 'Tap again to delete'; }
@@ -1645,6 +1693,7 @@ function onField(e, isChange) {
     return;
   }
   if (el.id === 'imp-file' && isChange) { addFiles(el.files); el.value = ''; return; }
+  if (el.id === 'f-m' && !isChange && S.sheet && S.sheet.kind === 'txn' && !S.sheet.id) { const w = $('#f-sugg'); if (w) w.innerHTML = suggHtml(suggFor(el.value)); return; }
   if (el.id === 'b-val') { const d = $('#b-diff'); if (d && S.sheet) d.innerHTML = balDiffNote(S.sheet.id, parseAmt(el.value)); return; }
   if (el.id === 'f-acc' && isChange && $('#f-kind') && $('#f-kind').value === 'xfer') {
     const to = $('#f-to'); if (to && to.value === el.value) { const g = suggestTo(el.value); if (g) to.value = g; }
@@ -1653,6 +1702,7 @@ function onField(e, isChange) {
   if (el.id === 'f-kind' && isChange) {
     const x = el.value === 'xfer';
     $('#f-to-w').hidden = !x; $('#f-x-note').hidden = !x; $('#f-cat-w').hidden = x; $('#f-acc-l').textContent = x ? 'From' : 'Card';
+    const sg = $('#f-sugg'); if (sg) sg.hidden = x;
     if (x) { const to = $('#f-to'), from = $('#f-acc'); if (to.value === from.value) { const g = suggestTo(from.value); if (g) to.value = g; } return; }
     const type = el.value === 'inc' ? 'inc' : 'exp', cs = $('#f-cat');
     const keep = catById(cs.value) && catById(cs.value).type === type ? cs.value : firstCat(type);
