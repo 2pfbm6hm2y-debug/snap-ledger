@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.13.0';
+const APP_VERSION = '1.13.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -356,17 +356,55 @@ function balances() {
   return out;
 }
 // What each group still owes you. Paybacks settle claims oldest first, so one lump sum can clear several.
-function owedState() {
+// A payback can say which claims it pays for (t.alloc = [{ id, amt }]). Those are applied first,
+// then anything left over clears the oldest claims. skipId leaves one payback out (for editing it).
+function owedState(skipId) {
   const all = allTx(), out = {};
   OWERS.forEach(([by]) => {
     const claims = all.filter(t => owedOf(t) && t.owed.by === by).sort((a, b) => a.d.localeCompare(b.d) || (a.t || 0) - (b.t || 0));
-    let pool = round2(all.reduce((n, t) => n + (t.type === 'back' && t.by === by ? t.amt : 0), 0));
-    const paid = pool;
-    const list = claims.map(t => { const o = owedOf(t), use = Math.min(pool, o); pool = round2(pool - use); return { t, owed: o, left: round2(o - use) }; });
-    const claimed = round2(claims.reduce((n, t) => n + owedOf(t), 0));
+    const backs = all.filter(t => t.type === 'back' && t.by === by && t.id !== skipId);
+    const left = {}; claims.forEach(t => { left[t.id] = owedOf(t); });
+    const got = {}; // what each claim has received, and from which paybacks
+    let pool = 0;
+    backs.forEach(b => {
+      let rem = b.amt;
+      (b.alloc || []).forEach(a => {
+        if (!(a.id in left) || rem <= 0) return;
+        const use = round2(Math.min(a.amt, left[a.id], rem));
+        left[a.id] = round2(left[a.id] - use); rem = round2(rem - use);
+        (got[a.id] || (got[a.id] = [])).push(b.id);
+      });
+      pool = round2(pool + rem);
+    });
+    const list = claims.map(t => {
+      const use = Math.min(pool, left[t.id]); pool = round2(pool - use);
+      return { t, owed: owedOf(t), left: round2(left[t.id] - use) };
+    });
+    const claimed = round2(claims.reduce((n, t) => n + owedOf(t), 0)), paid = round2(backs.reduce((n, t) => n + t.amt, 0));
     out[by] = { list, open: list.filter(c => c.left > 0.004), outstanding: round2(claimed - paid) };
   });
   return out;
+}
+// The tick list of claims on a payback: open ones for that group, plus any this payback already covers.
+function settleList(by, t, preset) {
+  const st0 = owedState(t ? t.id : null)[by], mine = new Set(((t && t.alloc) || []).map(a => a.id).concat(preset ? [preset] : []));
+  const rows = st0.list.filter(c => c.left > 0.004 || mine.has(c.t.id));
+  if (!rows.length) return `<p class="muted" style="font-size:13px;margin:0 0 12px">Nothing open for ${esc(owerName(by))} right now.</p>`;
+  return rows.map(c => `<label class="set-row"><input type="checkbox" data-claim="${esc(c.t.id)}" data-left="${c.left.toFixed(2)}"${mine.has(c.t.id) ? ' checked' : ''}>
+    <span class="set-m">${esc(c.t.m || catName(c.t.cat))} <span class="muted">${esc(fmtDate(c.t.d))}</span></span><span class="num">${money(c.left)}${c.left < c.owed - 0.004 ? ` <span class="muted">of ${money(c.owed)}</span>` : ''}</span></label>`).join('');
+}
+function tickedClaims() { return [...document.querySelectorAll('#f-set [data-claim]:checked')].map(e => ({ id: e.dataset.claim, left: +e.dataset.left })); }
+function fillFromTicks() {
+  const a = $('#f-amt'); if (!a || !S.sheet) return;
+  if (a.value && !S.sheet.amtAuto) return;
+  const sum = round2(tickedClaims().reduce((n, c) => n + c.left, 0));
+  a.value = sum > 0 ? sum.toFixed(2) : ''; S.sheet.amtAuto = true;
+}
+function paidFor(t) {
+  const a = t.alloc || []; if (!a.length) return '';
+  if (a.length > 1) return ` · for ${a.length} claims`;
+  const c = allTx().find(x => x.id === a[0].id);
+  return c ? ` · for ${esc(c.m || catName(c.cat))}` : '';
 }
 // Cards tab: what Work and Friends still owe you, with their open claims (oldest first).
 function owedSection(ow) {
@@ -384,7 +422,7 @@ function owedSection(ow) {
       <button class="btn small wide" data-act="new-payback" data-by="${by}" style="margin-top:8px">Record a payback from ${esc(name)}</button>
     </div>`;
   }).join('');
-  return h + `<p class="muted" style="font-size:12px;margin:10px 0 0">Mark an expense as paid back by Work or Friends when you add or edit it. Paybacks clear the oldest claims first.</p></section>`;
+  return h + `<p class="muted" style="font-size:12px;margin:10px 0 0">Mark an expense as paid back by Work or Friends when you add or edit it. Tap a claim to record a payback for it, or tick several at once for a lump sum.</p></section>`;
 }
 // How a correction reads: the change in what the bank app shows.
 function adjText(t) {
@@ -582,7 +620,7 @@ function vLedger() {
           <span class="tx-main"><span class="tx-m">${esc(t.m || 'Transfer')}</span><span class="tx-acc">${esc(accShort(t.acc))} → ${esc(accShort(t.to))}${whenTag(t)}</span></span>
           <span class="tx-amt xfer">${money(t.amt)}</span></button>`;
         if (k === 'back') return `${open}<span class="tx-cat">Payback</span>
-          <span class="tx-main"><span class="tx-m">${esc(t.m || owerName(t.by) + ' paid back')}</span><span class="tx-acc">${esc(owerName(t.by))} → ${esc(accShort(t.acc))}${whenTag(t)}</span></span>
+          <span class="tx-main"><span class="tx-m">${esc(t.m || owerName(t.by) + ' paid back')}</span><span class="tx-acc">${esc(owerName(t.by))} → ${esc(accShort(t.acc))}${paidFor(t)}${whenTag(t)}</span></span>
           <span class="tx-amt back">+${money(t.amt)}</span></button>`;
         if (k === 'adj') { const a = accById(t.acc); return `${open}<span class="tx-cat">Balance</span>
           <span class="tx-main"><span class="tx-m">${esc(t.m || 'Balance correction')}</span><span class="tx-acc">${esc(accShort(t.acc))} · ${isLiab(a) ? 'owed' : 'balance'} ${money(shown(a, t.bal))}</span></span>
@@ -1466,7 +1504,7 @@ function welcomeSteps() {
   steps.push({
     icon: ICON.wallet,
     title: 'Keep balances matched',
-    body: `<p>Optional. In <b>Cards</b>, tap <b>Add balance</b> and copy the figure from your bank app. Spending, income and transfers then move it.</p><ul><li>Card bills and wallet top-ups are transfers between your own accounts, so they don't count as spending.</li><li>Now and then, tap <b>Update</b> on a card and enter the bank's figure. If it's off, a correction entry makes it match.</li><li>Paid for work or friends? Set <b>Paid back by</b> on the expense (all of it, or their part of a split bill). It won't count as your spending, and paybacks you record clear it.</li></ul><p class="muted">Your data lives only on this phone, so use Settings → Back up now from time to time.</p>`
+    body: `<p>Optional. In <b>Cards</b>, tap <b>Add balance</b> and copy the figure from your bank app. Spending, income and transfers then move it.</p><ul><li>Card bills and wallet top-ups are transfers between your own accounts, so they don't count as spending.</li><li>Now and then, tap <b>Update</b> on a card and enter the bank's figure. If it's off, a correction entry makes it match.</li><li>Paid for work or friends? Set <b>Paid back by</b> on the expense (all of it, or their part of a split bill). It won't count as your spending. Record each payback against what it pays for, one claim or several.</li></ul><p class="muted">Your data lives only on this phone, so use Settings → Back up now from time to time.</p>`
   });
   return steps;
 }
@@ -1516,7 +1554,8 @@ function renderSheet() {
       <div class="row2"><label class="field"><span>Date</span><input class="in" id="f-date" type="date" value="${esc(defDate)}"></label>
       <label class="field"><span id="f-acc-l">${isX ? 'From' : isB ? 'Into' : 'Card'}</span><select class="in" id="f-acc">${accOptions(defAcc)}</select></label></div>
       <label class="field" id="f-by-w"${isB ? '' : ' hidden'}><span>Paid back by</span><select class="in" id="f-by">${owerOptions(t && t.by ? t.by : s.by || 'work')}</select></label>
-      <p class="muted" id="f-b-note" style="font-size:13px;margin-top:-4px"${isB ? '' : ' hidden'}>Money paid back to you. It settles what they owe, oldest first, and isn't counted as income.</p>
+      <div id="f-set-w"${isB ? '' : ' hidden'}><div class="field"><span>What it pays for</span></div><div id="f-set" class="set-list">${isB ? settleList(t && t.by ? t.by : s.by || 'work', t, s.claim) : ''}</div></div>
+      <p class="muted" id="f-b-note" style="font-size:13px;margin:6px 0 12px"${isB ? '' : ' hidden'}>Tick what this pays for, or tick nothing to clear the oldest first. Paybacks aren't income.</p>
       <label class="field" id="f-to-w"${isX ? '' : ' hidden'}><span>To</span><select class="in" id="f-to">${accOptions(defTo)}</select></label>
       <p class="muted" id="f-x-note" style="font-size:13px;margin-top:-4px"${isX ? '' : ' hidden'}>A transfer moves money between your own accounts, like paying a card bill or topping up a wallet. It isn't spending.</p>
       <label class="field" id="f-cat-w"${isX || isB ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptions(type, t && t.cat ? t.cat : (S.filterCat || firstCat(type)))}</select></label>
@@ -1524,6 +1563,8 @@ function renderSheet() {
         <div class="row2"><label class="field"><span>Paid back by</span><select class="in" id="f-ow"><option value="">Nobody, it's mine</option>${owerOptions(t && t.owed ? t.owed.by : '')}</select></label>
         <label class="field" id="f-owa-w"${t && t.owed ? '' : ' hidden'}><span>They owe</span><input class="in num" id="f-owa" inputmode="decimal" placeholder="All of it" value="${t && t.owed ? t.owed.amt.toFixed(2) : ''}"></label></div>
         <p class="muted" id="f-ow-note" style="font-size:13px;margin-top:-4px"${t && t.owed ? '' : ' hidden'}></p>
+        ${t && owedOf(t) ? (() => { const c = owedState()[t.owed.by].list.find(x => x.t.id === t.id); if (!c) return ''; const back = round2(c.owed - c.left);
+          return `<div class="ow-status"><span>${c.left <= 0.004 ? `<b class="t-good">Paid back in full</b>` : `Paid back <b class="num">${money(back)}</b> of <span class="num">${money(c.owed)}</span> so far`}</span>${c.left > 0.004 ? `<button class="btn small" data-act="pay-claim" data-by="${esc(t.owed.by)}" data-id="${esc(t.id)}" data-left="${c.left.toFixed(2)}">Record a payback for this</button>` : ''}</div>`; })() : ''}
       </div>
       ${paidFields(t, defDate)}
       <div class="sheet-actions">${t ? '<button class="btn danger" data-act="del-tx">Delete</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="save-tx">Save</button></div>`;
@@ -1623,6 +1664,10 @@ function saveTx() {
     rememberPayFrom(acc, to); saveSettings();
   } else if (kind === 'back') {
     rec = { d, amt: round2(amt), type: 'back', acc, by: $('#f-by').value, cat: '', m: m.slice(0, 60) };
+    // Spread the amount over the ticked claims, oldest first. Anything left over clears the oldest others.
+    let rem = rec.amt; const alloc = [];
+    tickedClaims().forEach(c => { if (rem <= 0) return; const use = round2(Math.min(c.left, rem)); if (use > 0) { alloc.push({ id: c.id, amt: use }); rem = round2(rem - use); } });
+    if (alloc.length) rec.alloc = alloc;
   } else {
     rec = { d, amt: round2(kind === 'ref' ? -amt : amt), type: kind === 'inc' ? 'inc' : 'exp', acc, cat, m: m.slice(0, 60) };
     const by = kind === 'exp' ? $('#f-ow').value : '';
@@ -1633,7 +1678,7 @@ function saveTx() {
   }
   const pd = $('#f-paid') && $('#f-paid').checked ? $('#f-paid-d').value : '';
   if (d > todayISO() && /^\d{4}-\d{2}-\d{2}$/.test(pd)) rec.paid = pd < d ? pd : todayISO();
-  const apply = o => { Object.assign(o, rec); if (rec.type !== 'xfer') delete o.to; if (!rec.paid) delete o.paid; if (!rec.owed) delete o.owed; if (rec.type !== 'back') delete o.by; return o; };
+  const apply = o => { Object.assign(o, rec); if (rec.type !== 'xfer') delete o.to; if (!rec.paid) delete o.paid; if (!rec.owed) delete o.owed; if (rec.type !== 'back') delete o.by; if (!rec.alloc) delete o.alloc; return o; };
   const ym = ymOf(d);
   if (s.id) {
     const old = monthTx(s.ym).find(x => x.id === s.id);
@@ -1800,6 +1845,7 @@ document.addEventListener('click', e => {
     case 'new-tx': openSheet({ kind: 'txn', id: null }); break;
     case 'new-income': openSheet({ kind: 'txn', id: null, kind0: 'inc' }); break;
     case 'new-payback': openSheet({ kind: 'txn', id: null, kind0: 'back', by: b.dataset.by }); break;
+    case 'pay-claim': openSheet({ kind: 'txn', id: null, kind0: 'back', by: b.dataset.by, claim: id, amtAuto: true }); { const a = $('#f-amt'); if (a) a.value = (+b.dataset.left).toFixed(2); } break;
     case 'edit-tx': openSheet({ kind: 'txn', id, ym: b.dataset.ym }); break;
     case 'save-tx': saveTx(); break;
     case 'sugg': { const x = S.sheet && S.sheet.sugg && S.sheet.sugg[+b.dataset.k]; if (x) applySugg(x); break; }
@@ -1910,11 +1956,15 @@ function onField(e, isChange) {
     const to = $('#f-to'); if (to && to.value === el.value) { const g = suggestTo(el.value); if (g) to.value = g; }
     return;
   }
+  if (el.dataset && el.dataset.claim !== undefined && isChange) { fillFromTicks(); return; }
+  if (el.id === 'f-by' && isChange) { $('#f-set').innerHTML = settleList(el.value, null); if (S.sheet.amtAuto) { $('#f-amt').value = ''; } return; }
+  if (el.id === 'f-amt' && !isChange && S.sheet) S.sheet.amtAuto = false;
   if (el.id === 'f-ow' || el.id === 'f-owa' || (el.id === 'f-amt' && $('#f-ow'))) { updateOwed(); if (el.id !== 'f-amt') return; }
   if (el.id === 'f-kind' && isChange) {
     const x = el.value === 'xfer', bk = el.value === 'back';
     $('#f-to-w').hidden = !x; $('#f-x-note').hidden = !x; $('#f-cat-w').hidden = x || bk; $('#f-acc-l').textContent = x ? 'From' : bk ? 'Into' : 'Card';
-    $('#f-by-w').hidden = !bk; $('#f-b-note').hidden = !bk; $('#f-ow-w').hidden = el.value !== 'exp';
+    $('#f-by-w').hidden = !bk; $('#f-b-note').hidden = !bk; $('#f-set-w').hidden = !bk; $('#f-ow-w').hidden = el.value !== 'exp';
+    if (bk) { $('#f-set').innerHTML = settleList($('#f-by').value, null); }
     const sg = $('#f-sugg'); if (sg) sg.hidden = x || bk;
     if (bk) return;
     if (x) { const to = $('#f-to'), from = $('#f-acc'); if (to.value === from.value) { const g = suggestTo(from.value); if (g) to.value = g; } return; }

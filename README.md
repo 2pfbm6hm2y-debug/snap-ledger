@@ -45,8 +45,10 @@ money between your own accounts and never count as spending.
 On an expense, set **Paid back by** to Work or Friends, with the whole amount or just
 their part of a split bill. Only your share counts as spending, while the card still
 takes the full charge. When money comes back, record a **Payback** (or change a scanned
-incoming payment to Payback). Paybacks clear the oldest claims first, so one lump sum
-from work can settle several. The Cards tab shows what's still owed to you.
+incoming payment to Payback) and tick what it pays for: one meal several friends are
+paying back bit by bit, or all the claims covered by a lump sum from work. With nothing
+ticked, a payback clears the oldest claims first. The Cards tab shows what's still owed
+to you, and each claim shows how much of it has come back.
 
 ## Spending outside the monthly budget
 

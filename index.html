@@ -117,6 +117,12 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .ow-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .ow-name{font-weight:600;font-size:16px} .ow-amt{font-size:18px}
 .ow-list{margin-top:6px}
+.set-list{display:grid;gap:2px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px 12px;margin-top:-6px}
+.set-row{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0;border-top:1px dashed var(--line);font-size:14px}
+.set-row:first-child{border-top:0}
+.set-row input{width:20px;height:20px;accent-color:var(--accent)}
+.set-m{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ow-status{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:-2px 0 12px;font-size:14px}
 .ow-row{display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;padding:6px 0;font-size:14px;border-top:1px dashed var(--line)}
 .ow-row>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tx-when{color:var(--good);font-weight:600} .tx-when.up{color:var(--accent)}
