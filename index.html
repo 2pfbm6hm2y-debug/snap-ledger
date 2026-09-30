@@ -111,7 +111,14 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .tx-acc{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tx-amt{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:14px;text-align:right;white-space:nowrap}
 .tx-amt.inc,.tx-amt.ref{color:var(--good)}
-.tx-amt.xfer,.tx-amt.adj{color:var(--muted)}
+.tx-amt.xfer,.tx-amt.adj{color:var(--muted)} .tx-amt.back{color:var(--good)}
+.tx-ow{color:var(--accent);font-weight:600}
+.ow-grp{padding:10px 0;border-top:1px solid var(--line)} .ow-grp:first-of-type{border-top:0;padding-top:0}
+.ow-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ow-name{font-weight:600;font-size:16px} .ow-amt{font-size:18px}
+.ow-list{margin-top:6px}
+.ow-row{display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;padding:6px 0;font-size:14px;border-top:1px dashed var(--line)}
+.ow-row>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tx-when{color:var(--good);font-weight:600} .tx-when.up{color:var(--accent)}
 .tgl{display:flex;gap:10px;align-items:center;font-size:15px;margin:2px 0 12px}
 .tgl input{width:20px;height:20px;flex:none;accent-color:var(--accent)}

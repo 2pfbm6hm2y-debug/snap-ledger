@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.12.4';
+const APP_VERSION = '1.13.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -148,7 +148,15 @@ const accById = id => accts().find(a => a.id === id);
 const catName = id => (catById(id) || { name: 'Uncategorised' }).name;
 const accName = id => { const a = accById(id); return a ? a.name + (a.last4 ? ' ••' + a.last4 : '') : 'No card'; };
 const monthTx = ym => (mo()[ym] && mo()[ym].txns) || [];
-const kindOf = t => t.type === 'xfer' ? 'xfer' : t.type === 'adj' ? 'adj' : t.type === 'inc' ? 'inc' : (t.amt < 0 ? 'ref' : 'exp');
+const kindOf = t => t.type === 'xfer' ? 'xfer' : t.type === 'adj' ? 'adj' : t.type === 'back' ? 'back' : t.type === 'inc' ? 'inc' : (t.amt < 0 ? 'ref' : 'exp');
+/* Paid for someone else: an expense can carry t.owed = { by: 'work' | 'friends', amt }, the part
+   that will be paid back. Balances still take the full charge, but only your share counts as
+   spending. Money coming back is a payback (type 'back'): it raises the account it lands in and
+   isn't income. Paybacks settle a group's oldest claims first. */
+const OWERS = [['work', 'Work'], ['friends', 'Friends']];
+const owerName = by => (OWERS.find(o => o[0] === by) || [by, 'Someone'])[1];
+const owedOf = t => t.type === 'exp' && t.owed && t.owed.amt > 0 && t.amt > 0 ? Math.min(t.owed.amt, t.amt) : 0;
+const spendAmt = t => t.type === 'exp' ? round2(t.amt - owedOf(t)) : 0;
 const accShort = id => (accById(id) || { name: 'No card' }).name;
 const isOutside = id => { const c = catById(id); return !!(c && c.outside); };
 const budgetCats = () => cats().filter(c => c.type === 'exp' && !c.outside && c.budget > 0);
@@ -281,17 +289,17 @@ async function restoreBackup(j) {
 /* ---------- aggregation ---------- */
 function spendByCat(ym, accFilter) {
   const m = {};
-  monthTx(ym).forEach(t => { if (t.type !== 'exp') return; if (accFilter && t.acc !== accFilter) return; m[t.cat] = (m[t.cat] || 0) + t.amt; });
+  monthTx(ym).forEach(t => { if (t.type !== 'exp') return; if (accFilter && t.acc !== accFilter) return; m[t.cat] = (m[t.cat] || 0) + spendAmt(t); });
   return m;
 }
 function spendByAcc(ym) {
   const m = {};
-  monthTx(ym).forEach(t => { if (t.type !== 'exp') return; m[t.acc] = (m[t.acc] || 0) + t.amt; });
+  monthTx(ym).forEach(t => { if (t.type !== 'exp') return; m[t.acc] = (m[t.acc] || 0) + spendAmt(t); });
   return m;
 }
 function totals(list) {
   let spent = 0, income = 0;
-  list.forEach(t => { if (t.type === 'exp') spent += t.amt; else if (t.type === 'inc') income += t.amt; });
+  list.forEach(t => { if (t.type === 'exp') spent += spendAmt(t); else if (t.type === 'inc') income += t.amt; });
   return { spent: round2(spent), income: round2(income) };
 }
 function elapsedFrac(ym) {
@@ -329,7 +337,7 @@ const moneyDay = t => t.paid && t.paid < t.d ? t.paid : t.d;
 const shown = (a, v) => isLiab(a) ? -v : v;
 function flowOf(t, id) {
   if (t.type === 'exp') return t.acc === id ? -t.amt : 0;
-  if (t.type === 'inc') return t.acc === id ? t.amt : 0;
+  if (t.type === 'inc' || t.type === 'back') return t.acc === id ? t.amt : 0;
   if (t.type === 'xfer') return (t.to === id ? t.amt : 0) - (t.acc === id ? t.amt : 0);
   return 0;
 }
@@ -346,6 +354,37 @@ function balances() {
     out[id].v = round2(v);
   });
   return out;
+}
+// What each group still owes you. Paybacks settle claims oldest first, so one lump sum can clear several.
+function owedState() {
+  const all = allTx(), out = {};
+  OWERS.forEach(([by]) => {
+    const claims = all.filter(t => owedOf(t) && t.owed.by === by).sort((a, b) => a.d.localeCompare(b.d) || (a.t || 0) - (b.t || 0));
+    let pool = round2(all.reduce((n, t) => n + (t.type === 'back' && t.by === by ? t.amt : 0), 0));
+    const paid = pool;
+    const list = claims.map(t => { const o = owedOf(t), use = Math.min(pool, o); pool = round2(pool - use); return { t, owed: o, left: round2(o - use) }; });
+    const claimed = round2(claims.reduce((n, t) => n + owedOf(t), 0));
+    out[by] = { list, open: list.filter(c => c.left > 0.004), outstanding: round2(claimed - paid) };
+  });
+  return out;
+}
+// Cards tab: what Work and Friends still owe you, with their open claims (oldest first).
+function owedSection(ow) {
+  const any = OWERS.some(([by]) => ow[by].list.length || Math.abs(ow[by].outstanding) > 0.004);
+  if (!any) return '';
+  let h = `<section class="sec" id="owed"><div class="sec-h"><h2>Owed to you</h2><span class="muted" style="font-size:13px">Paid for work or friends</span></div>`;
+  h += OWERS.map(([by, name]) => {
+    const o = ow[by];
+    if (!o.list.length && Math.abs(o.outstanding) < 0.005) return '';
+    const open = o.open.slice(0, 6);
+    return `<div class="ow-grp">
+      <div class="ow-top"><span class="ow-name">${esc(name)}</span><span class="num ow-amt${o.outstanding < -0.004 ? ' t-good' : ''}">${o.outstanding < -0.004 ? `${money(-o.outstanding)} extra paid` : money(o.outstanding)}</span></div>
+      ${open.length ? `<div class="ow-list">${open.map(c => `<button class="ow-row" data-act="edit-tx" data-id="${esc(c.t.id)}" data-ym="${esc(ymOf(c.t.d))}"><span>${esc(c.t.m || catName(c.t.cat))} <span class="muted">${esc(fmtDate(c.t.d))}</span></span><span class="num">${money(c.left)}${c.left < c.owed - 0.004 ? ` <span class="muted">of ${money(c.owed)}</span>` : ''}</span></button>`).join('')}${o.open.length > open.length ? `<p class="muted" style="font-size:12px;margin:4px 0 0">and ${o.open.length - open.length} more</p>` : ''}</div>`
+        : `<p class="muted" style="font-size:13px;margin:4px 0 0">All settled.</p>`}
+      <button class="btn small wide" data-act="new-payback" data-by="${by}" style="margin-top:8px">Record a payback from ${esc(name)}</button>
+    </div>`;
+  }).join('');
+  return h + `<p class="muted" style="font-size:12px;margin:10px 0 0">Mark an expense as paid back by Work or Friends when you add or edit it. Paybacks clear the oldest claims first.</p></section>`;
 }
 // How a correction reads: the change in what the bank app shows.
 function adjText(t) {
@@ -447,8 +486,9 @@ function applySugg(x) {
 /* ---------- options ---------- */
 const catOptions = (type, sel) => cats().filter(c => c.type === type).map(c => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
 const accOptions = sel => accts().map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}${a.last4 ? ' ••' + esc(a.last4) : ''}</option>`).join('');
+const owerOptions = sel => OWERS.map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
 const pickOptions = sel => `<option value=""${sel ? '' : ' selected'}>Pick…</option>` + accOptions(sel);
-const kindOptions = (sel, withX) => [['exp', 'Expense'], ['ref', 'Refund'], ['inc', 'Income']].concat(withX ? [['xfer', 'Transfer']] : []).map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
+const kindOptions = (sel, withX) => [['exp', 'Expense'], ['ref', 'Refund'], ['inc', 'Income']].concat(withX ? [['xfer', 'Transfer']] : [], [['back', 'Payback']]).map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
 const firstCat = type => (cats().find(c => c.type === type) || {}).id || '';
 
 /* ---------- render: chrome ---------- */
@@ -500,7 +540,7 @@ function vLedger() {
     .sort((a, b) => b.d.localeCompare(a.d) || (b.t || 0) - (a.t || 0));
   // Spent counts the monthly budget's categories, unless you're looking at one category.
   const tt = totals(list.filter(t => S.filterCat || !isOutside(t.cat)));
-  const spec = S.filterCat ? 0 : round2(list.reduce((n, t) => n + (t.type === 'exp' && isOutside(t.cat) ? t.amt : 0), 0));
+  const spec = S.filterCat ? 0 : round2(list.reduce((n, t) => n + (t.type === 'exp' && isOutside(t.cat) ? spendAmt(t) : 0), 0));
   const bCats = budgetCats();
   const budgetTotal = bCats.reduce((s, c) => s + c.budget, 0);
   const sp = spendByCat(S.month);
@@ -534,19 +574,22 @@ function vLedger() {
   const groups = [];
   list.forEach(t => { const g = groups[groups.length - 1]; if (g && g.d === t.d) g.items.push(t); else groups.push({ d: t.d, items: [t] }); });
   h += groups.map(g => {
-    const dayNet = g.items.reduce((s, t) => s + (t.type === 'exp' ? t.amt : 0), 0);
+    const dayNet = g.items.reduce((s, t) => s + spendAmt(t), 0);
     return `<section class="day" id="day-${esc(g.d)}"><div class="day-h"><span>${esc(dayLabel(g.d))}</span><span class="num">${money(dayNet)}</span></div>
       ${g.items.map(t => {
         const k = kindOf(t), open = `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}">`;
         if (k === 'xfer') return `${open}<span class="tx-cat">Transfer</span>
           <span class="tx-main"><span class="tx-m">${esc(t.m || 'Transfer')}</span><span class="tx-acc">${esc(accShort(t.acc))} → ${esc(accShort(t.to))}${whenTag(t)}</span></span>
           <span class="tx-amt xfer">${money(t.amt)}</span></button>`;
+        if (k === 'back') return `${open}<span class="tx-cat">Payback</span>
+          <span class="tx-main"><span class="tx-m">${esc(t.m || owerName(t.by) + ' paid back')}</span><span class="tx-acc">${esc(owerName(t.by))} → ${esc(accShort(t.acc))}${whenTag(t)}</span></span>
+          <span class="tx-amt back">+${money(t.amt)}</span></button>`;
         if (k === 'adj') { const a = accById(t.acc); return `${open}<span class="tx-cat">Balance</span>
           <span class="tx-main"><span class="tx-m">${esc(t.m || 'Balance correction')}</span><span class="tx-acc">${esc(accShort(t.acc))} · ${isLiab(a) ? 'owed' : 'balance'} ${money(shown(a, t.bal))}</span></span>
           <span class="tx-amt adj">${esc(adjText(t))}</span></button>`; }
         return `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}">
           <span class="tx-cat">${esc(catName(t.cat))}</span>
-          <span class="tx-main"><span class="tx-m">${esc(t.m || catName(t.cat))}</span><span class="tx-acc">${esc(accName(t.acc))}${k === 'ref' ? ' · Refund' : ''}${whenTag(t)}</span></span>
+          <span class="tx-main"><span class="tx-m">${esc(t.m || catName(t.cat))}</span><span class="tx-acc">${owedOf(t) ? `<span class="tx-ow">${esc(owerName(t.owed.by))} owe${t.owed.by === 'work' ? 's' : ''} ${money(owedOf(t))}</span> · ` : ''}${esc(accName(t.acc))}${k === 'ref' ? ' · Refund' : ''}${whenTag(t)}</span></span>
           <span class="tx-amt ${k}">${k === 'inc' ? '+' : ''}${money(k === 'ref' ? Math.abs(t.amt) : t.amt)}</span>
         </button>`;
       }).join('')}</section>`;
@@ -646,7 +689,7 @@ function statsByCategory(ym, seg) {
 // Transfers (card bills, moving money to savings or investments) don't count either way.
 function monthFlow(ym) {
   let inc = 0, sp = 0;
-  monthTx(ym).forEach(t => { if (t.type === 'inc') inc += t.amt; else if (t.type === 'exp') sp += t.amt; });
+  monthTx(ym).forEach(t => { if (t.type === 'inc') inc += t.amt; else if (t.type === 'exp') sp += spendAmt(t); });
   return { ym, inc: round2(inc), sp: round2(sp), saved: round2(inc - sp) };
 }
 // This month (or a future one) as it's likely to end: income is what you expect or what's come in,
@@ -744,7 +787,7 @@ function specialYear(ym) {
   let total = 0;
   for (let m = 1; m <= 12; m++) {
     const mym = y + '-' + pad(m); let v = 0;
-    monthTx(mym).forEach(t => { if (t.type === 'exp' && isOutside(t.cat)) { v += t.amt; byCat[t.cat] = (byCat[t.cat] || 0) + t.amt; } });
+    monthTx(mym).forEach(t => { if (t.type === 'exp' && isOutside(t.cat)) { v += spendAmt(t); byCat[t.cat] = (byCat[t.cat] || 0) + spendAmt(t); } });
     total += v;
     months.push({ ym: mym, v: round2(v), cum: round2(total) });
   }
@@ -780,7 +823,7 @@ function dailySection(ym, withB, sel) {
   const ids = new Set(all ? withB.map(x => x.id) : [sel]);
   const days = daysIn(ym), allow = budget / days;
   const byDay = new Array(days + 1).fill(0);
-  monthTx(ym).forEach(t => { if (t.type === 'exp' && ids.has(t.cat)) byDay[+t.d.slice(8, 10)] += t.amt; });
+  monthTx(ym).forEach(t => { if (t.type === 'exp' && ids.has(t.cat)) byDay[+t.d.slice(8, 10)] += spendAmt(t); });
   const nowYm = ymOf(todayISO());
   const upto = ym < nowYm ? days : ym > nowYm ? 0 : new Date().getDate();
   let overDays = 0, overAmt = 0;
@@ -861,18 +904,21 @@ function vCards() {
   if (!list.length) {
     h += `<div class="empty"><b>Add your cards</b>Each transaction is tagged to a card so you can see spending per card.</div>`;
   }
-  const ids = Object.keys(bals);
+  const ids = Object.keys(bals), ow = owedState(), toYou = round2(OWERS.reduce((n, [by]) => n + Math.max(0, ow[by].outstanding), 0));
   if (ids.length) {
     let assets = 0, owed = 0;
     ids.forEach(id => { const v = bals[id].v; if (isLiab(accById(id))) owed -= v; else assets += v; });
+    const net = assets + toYou - owed;
     h += `<section class="sec"><div class="sec-h"><h2>Balances</h2><span class="muted" style="font-size:13px">As of today</span></div>
       <div class="bal-sum">
         <div><span>In your accounts</span><span class="num">${money(assets)}</span></div>
+        ${toYou > 0.004 ? `<div><span>Owed to you</span><span class="num">${money(toYou)}</span></div>` : ''}
         <div><span>Owed on cards</span><span class="num">${money(owed)}</span></div>
-        <div class="net"><span>Net</span><span class="num${assets - owed < 0 ? ' t-bad' : ''}">${money(assets - owed)}</span></div>
+        <div class="net"><span>Net</span><span class="num${net < 0 ? ' t-bad' : ''}">${money(net)}</span></div>
       </div>
       <p class="muted" style="font-size:12px;margin:8px 0 0">From the figures you entered from your bank apps, plus everything since. Update a card or account below to check it still matches.</p></section>`;
   }
+  h += owedSection(ow);
   h += list.map(a => {
     // Spending lives in Stats. Here each card shows what's in it, or what you owe on it.
     const b = bals[a.id], liab = isLiab(a);
@@ -988,9 +1034,10 @@ function vSource() {
   return `<div class="src"><button class="btn ghost small" data-act="rv-src">${I.showSource ? 'Hide' : 'Show'} recognised text</button>${I.showSource ? `<pre class="num">${esc(I.source)}</pre>` : ''}</div>`;
 }
 function vRow(r, i) {
-  const type = r.kind === 'inc' ? 'inc' : 'exp', isX = r.kind === 'xfer';
+  const type = r.kind === 'inc' ? 'inc' : 'exp', isX = r.kind === 'xfer', isB = r.kind === 'back';
   const tags = [];
   if (isX) tags.push('<span class="tag acc">Transfer, not spending</span>');
+  if (isB) tags.push('<span class="tag good">Payback, not income</span>');
   if (r.dup === 'ledger') tags.push('<span class="tag warn">Already in ledger?</span>');
   if (r.dup === 'batch') tags.push('<span class="tag warn">Appears twice</span>');
   if (r.learned) tags.push('<span class="tag acc">Remembered</span>');
@@ -1009,7 +1056,7 @@ function vRow(r, i) {
       <div class="rv-l2">
         <input class="in" type="date" data-f="d" value="${esc(r.d)}" aria-label="Date">
         <select class="in" data-f="kind" aria-label="Type">${kindOptions(r.kind, true)}</select>
-        ${isX ? '' : `<select class="in${r.conf === 'low' && !r.learned ? ' unsure' : ''}" data-f="cat" aria-label="Category">${catOptions(type, r.cat)}</select>`}
+        ${isX ? '' : isB ? `<select class="in" data-f="by" aria-label="Paid back by">${owerOptions(r.by || 'work')}</select>` : `<select class="in${r.conf === 'low' && !r.learned ? ' unsure' : ''}" data-f="cat" aria-label="Category">${catOptions(type, r.cat)}</select>`}
       </div>
       ${isX ? `<div class="rv-l3"><label><span>From</span><select class="in${r.from ? '' : ' unsure'}" data-f="from">${pickOptions(r.from)}</select></label><label><span>To</span><select class="in${r.to ? '' : ' unsure'}" data-f="to">${pickOptions(r.to)}</select></label></div>` : ''}
       <div class="rv-meta">${tags.join('')}${r.raw ? `<span class="raw num">${esc(r.raw)}</span>` : ''}</div>
@@ -1302,7 +1349,7 @@ function markDuplicates() {
     if (seen.has(k)) r.dup = 'batch';
     else {
       seen.add(k);
-      const signed = r.kind === 'ref' ? -r.amt : r.amt, type = r.kind === 'inc' ? 'inc' : 'exp';
+      const signed = r.kind === 'ref' ? -r.amt : r.amt, type = r.kind === 'inc' ? 'inc' : r.kind === 'back' ? 'back' : 'exp';
       const months = [ymOf(r.d), addMonths(ymOf(r.d), -1), addMonths(ymOf(r.d), 1)];
       const hit = months.some(ym => monthTx(ym).some(t => t.acc === r.acc && t.type === type && Math.abs(t.amt - signed) < 0.005 &&
         (t.d === r.d || (dayDiff(t.d, r.d) <= 3 && SnapParse.normKey(t.raw || t.m).slice(0, 5) === key5))));
@@ -1325,7 +1372,7 @@ function approveRows() {
   const I = S.imp;
   let bad = 0;
   I.rows.forEach(r => {
-    const where = r.kind === 'xfer' ? accById(r.from) && accById(r.to) && r.from !== r.to : accById(r.acc) && catById(r.cat);
+    const where = r.kind === 'xfer' ? accById(r.from) && accById(r.to) && r.from !== r.to : r.kind === 'back' ? accById(r.acc) : accById(r.acc) && catById(r.cat);
     r.invalid = r.sel && (!(r.amt > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(r.d) || !where); if (r.invalid) bad++;
   });
   if (bad) { render(); toast(`Fix ${bad} highlighted line${bad === 1 ? '' : 's'} first: each needs a date, an amount above zero, and a card and category (or both accounts for a transfer).`); return; }
@@ -1339,6 +1386,10 @@ function approveRows() {
     if (r.kind === 'xfer') {
       mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.amt), type: 'xfer', acc: r.from, to: r.to, cat: '', m: (r.m || '').trim().slice(0, 60) || 'Transfer', raw: r.raw, src: 'scan', t: Date.now() }));
       rememberPayFrom(r.from, r.to);
+      return;
+    }
+    if (r.kind === 'back') {
+      mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.amt), type: 'back', acc: r.acc, by: r.by || 'work', cat: '', m: (r.m || '').trim().slice(0, 60), raw: r.raw, src: 'scan', t: Date.now() }));
       return;
     }
     const m = (r.m || '').trim().slice(0, 60) || catName(r.cat);
@@ -1415,7 +1466,7 @@ function welcomeSteps() {
   steps.push({
     icon: ICON.wallet,
     title: 'Keep balances matched',
-    body: `<p>Optional. In <b>Cards</b>, tap <b>Add balance</b> and copy the figure from your bank app. Spending, income and transfers then move it.</p><ul><li>Card bills and wallet top-ups are transfers between your own accounts, so they don't count as spending.</li><li>Now and then, tap <b>Update</b> on a card and enter the bank's figure. If it's off, a correction entry makes it match.</li></ul><p class="muted">Your data lives only on this phone, so use Settings → Back up now from time to time.</p>`
+    body: `<p>Optional. In <b>Cards</b>, tap <b>Add balance</b> and copy the figure from your bank app. Spending, income and transfers then move it.</p><ul><li>Card bills and wallet top-ups are transfers between your own accounts, so they don't count as spending.</li><li>Now and then, tap <b>Update</b> on a card and enter the bank's figure. If it's off, a correction entry makes it match.</li><li>Paid for work or friends? Set <b>Paid back by</b> on the expense (all of it, or their part of a split bill). It won't count as your spending, and paybacks you record clear it.</li></ul><p class="muted">Your data lives only on this phone, so use Settings → Back up now from time to time.</p>`
   });
   return steps;
 }
@@ -1451,24 +1502,32 @@ function renderSheet() {
       return;
     }
     const k = t ? kindOf(t) : (s.kind0 || 'exp');
-    const type = k === 'inc' ? 'inc' : 'exp', isX = k === 'xfer';
-    const defAcc = t ? t.acc : (S.filterAcc || (k === 'inc' && (accts().find(a => a.kind === 'debit') || {}).id) || (accts()[0] || {}).id);
+    const type = k === 'inc' ? 'inc' : 'exp', isX = k === 'xfer', isB = k === 'back';
+    const defAcc = t ? t.acc : (S.filterAcc || ((k === 'inc' || k === 'back') && (accts().find(a => a.kind === 'debit') || {}).id) || (accts()[0] || {}).id);
     const defTo = t && t.to ? t.to : suggestTo(defAcc);
     const defDate = t ? t.d : (S.month === ymOf(todayISO()) ? todayISO() : S.month + '-01');
-    el.innerHTML = `<div class="grab"></div><h2>${t ? (isX ? 'Edit transfer' : 'Edit transaction') : 'New transaction'}</h2>
+    el.innerHTML = `<div class="grab"></div><h2>${t ? (isX ? 'Edit transfer' : isB ? 'Edit payback' : 'Edit transaction') : isB ? 'Record a payback' : 'New transaction'}</h2>
       ${accts().length ? '' : '<div class="err">Add a card first in the Cards tab.</div>'}
       <label class="field"><span>Merchant or note</span><input class="in" id="f-m" value="${esc(t ? t.m : '')}" maxlength="60" autocomplete="off" autocorrect="off" enterkeyhint="next"></label>
       ${t && t.raw ? `<p class="raw num" style="margin:-4px 0 12px">Statement: ${esc(t.raw)}</p>` : ''}
-      ${t ? '' : `<div id="f-sugg"${isX ? ' hidden' : ''}>${suggHtml(suggFor(''))}</div>`}
+      ${t ? '' : `<div id="f-sugg"${isX || isB ? ' hidden' : ''}>${suggHtml(suggFor(''))}</div>`}
       <div class="row2"><label class="field"><span>Type</span><select class="in" id="f-kind">${kindOptions(k, accts().length > 1)}</select></label>
       <label class="field"><span>Amount</span><input class="in num" id="f-amt" inputmode="decimal" value="${t ? Math.abs(t.amt).toFixed(2) : ''}" placeholder="0.00"></label></div>
       <div class="row2"><label class="field"><span>Date</span><input class="in" id="f-date" type="date" value="${esc(defDate)}"></label>
-      <label class="field"><span id="f-acc-l">${isX ? 'From' : 'Card'}</span><select class="in" id="f-acc">${accOptions(defAcc)}</select></label></div>
+      <label class="field"><span id="f-acc-l">${isX ? 'From' : isB ? 'Into' : 'Card'}</span><select class="in" id="f-acc">${accOptions(defAcc)}</select></label></div>
+      <label class="field" id="f-by-w"${isB ? '' : ' hidden'}><span>Paid back by</span><select class="in" id="f-by">${owerOptions(t && t.by ? t.by : s.by || 'work')}</select></label>
+      <p class="muted" id="f-b-note" style="font-size:13px;margin-top:-4px"${isB ? '' : ' hidden'}>Money paid back to you. It settles what they owe, oldest first, and isn't counted as income.</p>
       <label class="field" id="f-to-w"${isX ? '' : ' hidden'}><span>To</span><select class="in" id="f-to">${accOptions(defTo)}</select></label>
       <p class="muted" id="f-x-note" style="font-size:13px;margin-top:-4px"${isX ? '' : ' hidden'}>A transfer moves money between your own accounts, like paying a card bill or topping up a wallet. It isn't spending.</p>
-      <label class="field" id="f-cat-w"${isX ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptions(type, t && t.cat ? t.cat : (S.filterCat || firstCat(type)))}</select></label>
+      <label class="field" id="f-cat-w"${isX || isB ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptions(type, t && t.cat ? t.cat : (S.filterCat || firstCat(type)))}</select></label>
+      <div id="f-ow-w"${k === 'exp' ? '' : ' hidden'}>
+        <div class="row2"><label class="field"><span>Paid back by</span><select class="in" id="f-ow"><option value="">Nobody, it's mine</option>${owerOptions(t && t.owed ? t.owed.by : '')}</select></label>
+        <label class="field" id="f-owa-w"${t && t.owed ? '' : ' hidden'}><span>They owe</span><input class="in num" id="f-owa" inputmode="decimal" placeholder="All of it" value="${t && t.owed ? t.owed.amt.toFixed(2) : ''}"></label></div>
+        <p class="muted" id="f-ow-note" style="font-size:13px;margin-top:-4px"${t && t.owed ? '' : ' hidden'}></p>
+      </div>
       ${paidFields(t, defDate)}
       <div class="sheet-actions">${t ? '<button class="btn danger" data-act="del-tx">Delete</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="save-tx">Save</button></div>`;
+    if (t && t.owed) updateOwed();
   } else if (s.kind === 'card') {
     const a = s.id ? accById(s.id) : null;
     el.innerHTML = `<div class="grab"></div><h2>${a ? 'Edit card' : s.first ? 'Add your first card' : 'Add a card'}</h2>
@@ -1542,6 +1601,14 @@ function whenTag(t) {
   if (t.d <= todayISO()) return '';
   return t.paid && t.paid < t.d ? ` · <span class="tx-when">Paid ${esc(fmtDate(t.paid))}</span>` : ' · <span class="tx-when up">Upcoming</span>';
 }
+// Under "Paid back by": shows your share, and hides the amount box when nobody owes anything.
+function updateOwed() {
+  const by = $('#f-ow').value, n = $('#f-ow-note'), w = $('#f-owa-w'); if (!n) return;
+  w.hidden = !by; n.hidden = !by; if (!by) return;
+  const amt = parseAmt($('#f-amt').value), oa = parseAmt($('#f-owa').value), o = isFinite(oa) && oa > 0 ? Math.min(oa, amt || oa) : amt;
+  n.innerHTML = isFinite(amt) && amt > 0 ? (o >= amt - 0.004 ? `None of it counts as your spending. ${esc(owerName(by))} ${by === 'work' ? 'owes' : 'owe'} you all <span class="num">${money(amt)}</span>.`
+    : `Your share, <span class="num">${money(amt - o)}</span>, counts as your spending. ${esc(owerName(by))} ${by === 'work' ? 'owes' : 'owe'} you <span class="num">${money(o)}</span>.`) : 'Leave "They owe" empty if they owe all of it.';
+}
 function saveTx() {
   const s = S.sheet;
   const kind = $('#f-kind').value, amt = parseAmt($('#f-amt').value), d = $('#f-date').value, acc = $('#f-acc').value, cat = $('#f-cat').value, m = $('#f-m').value.trim();
@@ -1554,10 +1621,19 @@ function saveTx() {
     if (!accById(to) || to === acc) return toast('Pick two different accounts for a transfer.');
     rec = { d, amt: round2(amt), type: 'xfer', acc, to, cat: '', m: m.slice(0, 60) || 'Transfer' };
     rememberPayFrom(acc, to); saveSettings();
-  } else rec = { d, amt: round2(kind === 'ref' ? -amt : amt), type: kind === 'inc' ? 'inc' : 'exp', acc, cat, m: m.slice(0, 60) };
+  } else if (kind === 'back') {
+    rec = { d, amt: round2(amt), type: 'back', acc, by: $('#f-by').value, cat: '', m: m.slice(0, 60) };
+  } else {
+    rec = { d, amt: round2(kind === 'ref' ? -amt : amt), type: kind === 'inc' ? 'inc' : 'exp', acc, cat, m: m.slice(0, 60) };
+    const by = kind === 'exp' ? $('#f-ow').value : '';
+    if (by) {
+      const oa = parseAmt($('#f-owa').value), o = isFinite(oa) && oa > 0 ? Math.min(round2(oa), rec.amt) : rec.amt;
+      rec.owed = { by, amt: o };
+    }
+  }
   const pd = $('#f-paid') && $('#f-paid').checked ? $('#f-paid-d').value : '';
   if (d > todayISO() && /^\d{4}-\d{2}-\d{2}$/.test(pd)) rec.paid = pd < d ? pd : todayISO();
-  const apply = o => { Object.assign(o, rec); if (rec.type !== 'xfer') delete o.to; if (!rec.paid) delete o.paid; return o; };
+  const apply = o => { Object.assign(o, rec); if (rec.type !== 'xfer') delete o.to; if (!rec.paid) delete o.paid; if (!rec.owed) delete o.owed; if (rec.type !== 'back') delete o.by; return o; };
   const ym = ymOf(d);
   if (s.id) {
     const old = monthTx(s.ym).find(x => x.id === s.id);
@@ -1568,15 +1644,15 @@ function saveTx() {
       if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
       mo()[ym].txns.push(apply(old)); saveMonth(ym);
     }
-    if (old.raw && rec.type !== 'xfer') { const k = SnapParse.normKey(old.raw); if (k) { const r = st().rules || (st().rules = {}); delete r[k]; r[k] = { c: cat, m: rec.m }; saveSettings(); } }
+    if (old.raw && rec.type !== 'xfer' && rec.type !== 'back') { const k = SnapParse.normKey(old.raw); if (k) { const r = st().rules || (st().rules = {}); delete r[k]; r[k] = { c: cat, m: rec.m }; saveSettings(); } }
   } else {
     if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
     mo()[ym].txns.push(Object.assign({ id: newId(), raw: '', src: 'manual', t: Date.now() }, rec)); saveMonth(ym);
   }
   closeSheet(); render();
   if (s.id) toast('Saved.');
-  else celebrate({ badge: '+1 added', title: rec.type === 'xfer' ? 'Transfer added' : 'Added to your ledger',
-    sub: rec.type === 'xfer' ? `${accShort(rec.acc)} → ${accShort(rec.to)} · ${money(rec.amt)}` : [rec.m || catName(rec.cat), money(Math.abs(rec.amt)) + (rec.amt < 0 ? ' refund' : ''), accShort(rec.acc)].join(' · ') }, 'Saved.');
+  else celebrate({ badge: '+1 added', title: rec.type === 'xfer' ? 'Transfer added' : rec.type === 'back' ? 'Payback recorded' : 'Added to your ledger',
+    sub: rec.type === 'xfer' ? `${accShort(rec.acc)} → ${accShort(rec.to)} · ${money(rec.amt)}` : rec.type === 'back' ? `${owerName(rec.by)} paid back ${money(rec.amt)} · ${accShort(rec.acc)}` : [rec.m || catName(rec.cat), money(Math.abs(rec.amt)) + (rec.amt < 0 ? ' refund' : ''), accShort(rec.acc)].join(' · ') }, 'Saved.');
 }
 function saveCard() {
   const name = $('#c-name').value.trim(), l4 = $('#c-l4').value.replace(/\D/g, '').slice(-4), kind = $('#c-kind').value, match = $('#c-match').value.trim().slice(0, 80);
@@ -1591,11 +1667,11 @@ function saveCard() {
 async function exportCsv() {
   if (S.demo) { toast('Start your ledger first. The example data has nothing to export.'); return; }
   const q = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-  const rows = [['Date', 'Card', 'Category', 'Merchant', 'Amount', 'Type', 'Statement text', 'To card', 'Balance entered']];
-  const typeL = { inc: 'Income', ref: 'Refund', exp: 'Expense', xfer: 'Transfer', adj: 'Balance correction' };
+  const rows = [['Date', 'Card', 'Category', 'Merchant', 'Amount', 'Type', 'Statement text', 'To card', 'Balance entered', 'Paid back by', 'Owed to you']];
+  const typeL = { inc: 'Income', ref: 'Refund', exp: 'Expense', xfer: 'Transfer', adj: 'Balance correction', back: 'Payback' };
   Object.keys(mo()).sort().forEach(ym => monthTx(ym).slice().sort((a, b) => a.d.localeCompare(b.d)).forEach(t => {
     const k = kindOf(t);
-    rows.push([t.d, accName(t.acc), t.cat ? catName(t.cat) : '', t.m, t.amt.toFixed(2), typeL[k], t.raw || '', t.to ? accName(t.to) : '', k === 'adj' ? shown(accById(t.acc), t.bal).toFixed(2) : '']);
+    rows.push([t.d, accName(t.acc), t.cat ? catName(t.cat) : '', t.m, t.amt.toFixed(2), typeL[k], t.raw || '', t.to ? accName(t.to) : '', k === 'adj' ? shown(accById(t.acc), t.bal).toFixed(2) : '', t.type === 'back' ? owerName(t.by) : owedOf(t) ? owerName(t.owed.by) : '', owedOf(t) ? owedOf(t).toFixed(2) : '']);
   }));
   await shareFile('snap-ledger-' + todayISO() + '.csv', rows.map(r => r.map(q).join(',')).join('\n'), 'text/csv');
 }
@@ -1723,6 +1799,7 @@ document.addEventListener('click', e => {
     case 'stats-by': S.statsBy = b.dataset.by; render(); break;
     case 'new-tx': openSheet({ kind: 'txn', id: null }); break;
     case 'new-income': openSheet({ kind: 'txn', id: null, kind0: 'inc' }); break;
+    case 'new-payback': openSheet({ kind: 'txn', id: null, kind0: 'back', by: b.dataset.by }); break;
     case 'edit-tx': openSheet({ kind: 'txn', id, ym: b.dataset.ym }); break;
     case 'save-tx': saveTx(); break;
     case 'sugg': { const x = S.sheet && S.sheet.sugg && S.sheet.sugg[+b.dataset.k]; if (x) applySugg(x); break; }
@@ -1833,10 +1910,13 @@ function onField(e, isChange) {
     const to = $('#f-to'); if (to && to.value === el.value) { const g = suggestTo(el.value); if (g) to.value = g; }
     return;
   }
+  if (el.id === 'f-ow' || el.id === 'f-owa' || (el.id === 'f-amt' && $('#f-ow'))) { updateOwed(); if (el.id !== 'f-amt') return; }
   if (el.id === 'f-kind' && isChange) {
-    const x = el.value === 'xfer';
-    $('#f-to-w').hidden = !x; $('#f-x-note').hidden = !x; $('#f-cat-w').hidden = x; $('#f-acc-l').textContent = x ? 'From' : 'Card';
-    const sg = $('#f-sugg'); if (sg) sg.hidden = x;
+    const x = el.value === 'xfer', bk = el.value === 'back';
+    $('#f-to-w').hidden = !x; $('#f-x-note').hidden = !x; $('#f-cat-w').hidden = x || bk; $('#f-acc-l').textContent = x ? 'From' : bk ? 'Into' : 'Card';
+    $('#f-by-w').hidden = !bk; $('#f-b-note').hidden = !bk; $('#f-ow-w').hidden = el.value !== 'exp';
+    const sg = $('#f-sugg'); if (sg) sg.hidden = x || bk;
+    if (bk) return;
     if (x) { const to = $('#f-to'), from = $('#f-acc'); if (to.value === from.value) { const g = suggestTo(from.value); if (g) to.value = g; } return; }
     const type = el.value === 'inc' ? 'inc' : 'exp', cs = $('#f-cat');
     const keep = catById(cs.value) && catById(cs.value).type === type ? cs.value : firstCat(type);
@@ -1873,7 +1953,7 @@ function onField(e, isChange) {
     S.imp.rows.forEach(r => {
       if (!r.sel) return;
       if (el.id === 'bulk-acc') { r.acc = v; n++; }
-      else if (r.kind !== 'inc' && r.kind !== 'xfer') { r.cat = v; r.conf = 'high'; r.learned = false; n++; }
+      else if (r.kind !== 'inc' && r.kind !== 'xfer' && r.kind !== 'back') { r.cat = v; r.conf = 'high'; r.learned = false; n++; }
     });
     $('#rv-list').innerHTML = vGroups(); el.value = '';
     toast(`Updated ${n} ticked line${n === 1 ? '' : 's'}.`);
@@ -1886,6 +1966,7 @@ function onField(e, isChange) {
   else if (f === 'kind') {
     if (!isChange) return;
     const prev = r.kind; r.kind = el.value;
+    if (r.kind === 'back' && !r.by) r.by = 'work';
     if (r.kind === 'xfer' && prev !== 'xfer') {
       // Money out of this card or account (an expense line) goes to another. Money in came from one.
       r.dir = prev === 'exp' ? 'out' : 'in';
@@ -1898,6 +1979,7 @@ function onField(e, isChange) {
   }
   else if (f === 'cat') { r.cat = el.value; r.conf = 'high'; el.classList.remove('unsure'); }
   else if (f === 'from' || f === 'to') { r[f] = el.value; el.classList.toggle('unsure', !el.value); }
+  else if (f === 'by') { r.by = el.value; }
   else r[f] = el.value;
   if (r.invalid) { r.invalid = false; const rr = document.querySelector(`.rv[data-i="${row.dataset.i}"]`); if (rr) rr.classList.remove('invalid'); }
   const foot = $('#rv-foot'); if (foot) foot.innerHTML = vFoot();

@@ -40,6 +40,14 @@ balance. Update it now and then, and a correction entry makes up any difference 
 matches your bank again. Card payments and wallet top-ups are transfers: they move
 money between your own accounts and never count as spending.
 
+## Paid for work or friends
+
+On an expense, set **Paid back by** to Work or Friends, with the whole amount or just
+their part of a split bill. Only your share counts as spending, while the card still
+takes the full charge. When money comes back, record a **Payback** (or change a scanned
+incoming payment to Payback). Paybacks clear the oldest claims first, so one lump sum
+from work can settle several. The Cards tab shows what's still owed to you.
+
 ## Spending outside the monthly budget
 
 In the **Budget** tab, mark categories that sit outside the monthly budget (Special
