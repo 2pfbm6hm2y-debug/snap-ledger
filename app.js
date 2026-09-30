@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.15.0';
+const APP_VERSION = '1.15.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1853,18 +1853,33 @@ function bunnyHop(label, fallback) {
   $('#toast').textContent = fallback || label; // screen readers still hear it
   celebT = setTimeout(() => el.remove(), 2100);
 }
-// A full-screen moment: a ring draws itself, the bunny peeks up through it, a check pops in with
-// confetti, and the summary fades up. Closes by itself, or on any tap.
+// A full-screen moment: a ring draws itself, the swimming bunny rises through it and pops its head
+// out over the top with a splash, its goggles glint, a check lands with ripples, and the summary
+// fades up. Closes by itself, or on any tap.
+const OK_BUNNY = 'img/bunny.webp';
+function splashBits(at) {
+  const colors = ['#5BC0F8', '#2F9BE8', '#8FD6FF', '#1E7FD0', '#B4E7FF'];
+  let bits = '';
+  for (let i = 0; i < 12; i++) {
+    const a = (-165 + i * (150 / 11) + (Math.random() * 10 - 5)) * Math.PI / 180, d = 52 + Math.random() * 40, z = 4 + Math.round(Math.random() * 5);
+    bits += `<i class="ok-drop" style="--x:${(Math.cos(a) * d).toFixed(1)}px;--y:${(Math.sin(a) * d).toFixed(1)}px;--c:${colors[i % colors.length]};width:${z}px;height:${z}px;animation-delay:${at + Math.round(Math.random() * 60)}ms"></i>`;
+  }
+  return bits;
+}
 function successScreen(info) {
   const el = document.createElement('div');
   el.className = 'ok-fx'; el.setAttribute('role', 'status');
+  const bubbles = [[34, 7, 1050], [70, 5, 1300], [22, 4, 1550], [80, 6, 1750]].map(([x, z, t]) => `<i class="ok-bub" style="left:${x}%;width:${z}px;height:${z}px;animation-delay:${t}ms"></i>`).join('');
   el.innerHTML = `<div class="ok-bg"></div>
     <div class="ok-stage" aria-hidden="true">
       <span class="ok-ring"></span><span class="ok-ring r2"></span>
-      <svg class="ok-circle" viewBox="0 0 200 200"><circle class="ok-disc" cx="100" cy="100" r="78"/><circle class="ok-stroke" cx="100" cy="100" r="78"/></svg>
-      <div class="ok-peek"><div class="ok-bunny">${BUNNY_SVG}</div></div>
+      <svg class="ok-circle" viewBox="0 0 240 240"><circle class="ok-disc" cx="120" cy="120" r="90"/><circle class="ok-stroke" cx="120" cy="120" r="90"/></svg>
+      <div class="ok-splash">${splashBits(840)}</div>
+      <div class="ok-peek">
+        <div class="ok-bunny"><div class="ok-bob"><img src="${OK_BUNNY}" alt="" draggable="false"><i class="ok-lens l"></i><i class="ok-lens r"></i><i class="ok-gleam"></i></div></div>
+        ${bubbles}
+      </div>
       <svg class="ok-check" viewBox="0 0 54 54"><circle cx="27" cy="27" r="24"/><path d="M16 28l7.5 7.5L39 20"/></svg>
-      <div class="ok-burst">${confettiBits(1000, 18)}</div>
     </div>
     <h2 class="ok-title">${esc(info.title || 'Added')}</h2>
     ${info.sub ? `<p class="ok-sub">${esc(info.sub)}</p>` : ''}
@@ -1873,7 +1888,7 @@ function successScreen(info) {
   el.addEventListener('click', e => { e.stopPropagation(); close(); });
   document.body.appendChild(el);
   okClose = close;
-  celebT = setTimeout(close, 2800);
+  celebT = setTimeout(close, 3000);
 }
 
 /* ---------- events ---------- */
@@ -2126,6 +2141,7 @@ document.addEventListener('paste', e => {
 async function boot() {
   render();
   await Store.init();
+  try { const pre = new Image(); pre.src = OK_BUNNY; } catch (e) {}
   if (S.demo && S.mode === 'device' && !lsGet('snapledger:welcomed')) openSheet({ kind: 'welcome', step: 0 });
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     const hadController = !!navigator.serviceWorker.controller;
