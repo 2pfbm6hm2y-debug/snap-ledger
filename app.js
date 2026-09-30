@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.14.1';
+const APP_VERSION = '1.14.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -681,11 +681,12 @@ function statsByCategory(ym, seg) {
   const total = Object.values(spent).reduce((s, v) => s + v, 0);
   const totalB = withB.reduce((s, c) => s + c.budget, 0);
   const spentB = withB.reduce((s, c) => s + (spent[c.id] || 0), 0);
-  // Pace comes from daily categories. Monthly bills count as expected once they've landed.
+  // Pace comes from daily categories. Monthly bills count as expected once they've landed, up to
+  // their budget; anything over eats into the run rate, for daily spending to make up.
   const sum = (list, f) => list.reduce((n, c) => n + f(c), 0), sp = c => spent[c.id] || 0;
   const dB = sum(dailyB, c => c.budget), dSp = sum(dailyB, sp), mSp = sum(monthlyB, sp);
   const mOver = sum(monthlyB, c => Math.max(0, sp(c) - c.budget)), mDue = sum(monthlyB, c => Math.max(0, c.budget - sp(c)));
-  const runRate = dB * Math.min(1, Math.max(0, frac)) + mSp;
+  const runRate = dB * Math.min(1, Math.max(0, frac)) + sum(monthlyB, c => Math.min(sp(c), c.budget));
   const unb = Object.keys(spent).filter(id => spent[id] > 0.004 && !withB.some(c => c.id === id)).map(id => ({ id, v: spent[id] })).sort((a, b) => b.v - a.v);
   const unbTotal = unb.reduce((s, r) => s + r.v, 0);
   const days = daysIn(ym), today = new Date().getDate(), isNow = ym === ymOf(todayISO()), daysLeft = days - today + 1;
@@ -698,7 +699,7 @@ function statsByCategory(ym, seg) {
     h += `<div class="bar-top" style="margin-top:12px"><span class="num">${money(spentB, 0)} of ${money(totalB, 0)} budget</span><span class="pill ${st0.k}">${st0.icon}${esc(st0.label)}</span></div>
       <div class="track" style="height:12px"><div class="fill ${st0.k}" style="width:${Math.min(100, spentB / totalB * 100).toFixed(1)}%"></div>${paceTick(runRate / totalB)}</div>
       <div class="bar-sub"><span>${Math.round(spentB / totalB * 100)}% used${isNow ? ` · ${Math.round(frac * 100)}% of the month gone` : ''}</span><span>${statusNote(st0, left, false, daysLeft)}</span></div>
-      <div class="pace-note">${isNow ? `Day ${today} of ${days}. Run rate today is <span class="num">${money(st0.runRate, 0)}</span>, marked by the line on each bar.${st0.k === 'warn' ? ` You're <span class="num">${money(st0.ahead, 0)}</span> above it.` : st0.k === 'good' ? ` You're <span class="num">${money(st0.under, 0)}</span> under it.` : ''}${room > 0 ? ` You can spend about <span class="num">${money(room / daysLeft, 0)}</span> a day for the rest of the month.` : ''}${monthlyB.length ? (mDue > 0.004 ? ` <span class="num">${money(mDue, 0)}</span> of monthly bills still to come, left out of the daily pace.` : ' Monthly bills are in, and left out of the daily pace.') : ''}` : frac >= 1 ? 'This month is over.' : "This month hasn't started."}${unbTotal > 0.004 ? ` Plus <span class="num">${money(unbTotal, 0)}</span> in categories without a budget.` : ''}</div>
+      <div class="pace-note">${isNow ? `Day ${today} of ${days}. Run rate today is <span class="num">${money(st0.runRate, 0)}</span>, marked by the line on each bar.${st0.k === 'warn' ? ` You're <span class="num">${money(st0.ahead, 0)}</span> above it.` : st0.k === 'good' ? ` You're <span class="num">${money(st0.under, 0)}</span> under it.` : ''}${mOver > 0.004 ? ` That includes <span class="num">${money(mOver, 0)}</span> of monthly bills over budget, for daily spending to make up.` : ''}${room > 0 ? ` You can spend about <span class="num">${money(room / daysLeft, 0)}</span> a day for the rest of the month.` : ''}${monthlyB.length ? (mDue > 0.004 ? ` <span class="num">${money(mDue, 0)}</span> of monthly bills still to come.` : ' Monthly bills are all in.') : ''}` : frac >= 1 ? 'This month is over.' : "This month hasn't started."}${unbTotal > 0.004 ? ` Plus <span class="num">${money(unbTotal, 0)}</span> in categories without a budget.` : ''}</div>
       <div class="legend"><span class="pill good">${ICON.ok}On track</span><span>At or under the run rate</span><span class="pill warn">${ICON.warn}At risk</span><span>Above the run rate, still within budget</span><span class="pill bad">${ICON.over}Over</span><span>Past the month's budget</span></div>`;
   } else {
     h += `<p class="muted" style="font-size:14px">Set monthly budgets to see whether you're on track.</p><button class="btn small" data-act="tab" data-tab="budget">Set budgets</button>`;
