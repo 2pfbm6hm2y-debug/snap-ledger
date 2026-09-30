@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.12.0';
+const APP_VERSION = '1.12.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -155,7 +155,9 @@ const budgetCats = () => cats().filter(c => c.type === 'exp' && !c.outside && c.
 const allTx = () => Object.values(mo()).reduce((a, m) => a.concat((m && m.txns) || []), []);
 const isLiab = a => !!a && a.kind === 'credit';
 const fmtDate = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: iso.slice(0, 4) === todayISO().slice(0, 4) ? undefined : 'numeric' });
-const money = (n, dp = 2) => (n < 0 ? '−' : '') + cur() + Math.abs(n).toLocaleString('en-SG', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+// Stats shows every amount to one decimal place (set while it renders); elsewhere, cents.
+let moneyDp = null;
+const money = (n, dp = 2) => { const d = moneyDp === null ? dp : moneyDp; return (n < 0 ? '−' : '') + cur() + Math.abs(n).toLocaleString('en-SG', { minimumFractionDigits: d, maximumFractionDigits: d }); };
 const txCount = () => Object.values(mo()).reduce((n, m) => n + ((m && m.txns) || []).length, 0);
 
 /* ---------- storage: IndexedDB on this device ---------- */
@@ -553,6 +555,10 @@ function vLedger() {
 }
 
 function vStats() {
+  moneyDp = 1;
+  try { return statsView(); } finally { moneyDp = null; }
+}
+function statsView() {
   const ym = S.month;
   const seg = `<div class="seg" role="group" aria-label="Group by"><button class="${S.statsBy === 'cat' ? 'on' : ''}" data-act="stats-by" data-by="cat">Category</button><button class="${S.statsBy === 'acc' ? 'on' : ''}" data-act="stats-by" data-by="acc">Card</button></div>`;
   return S.statsBy === 'cat' ? statsByCategory(ym, seg) + savingsSection(ym) + specialYear(ym) : statsByCard(ym, seg) + trendSection(ym, null);
