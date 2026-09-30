@@ -53,9 +53,11 @@ to you, and each claim shows how much of it has come back.
 ## Monthly bills
 
 Bills that land once a month, like rent or utilities, can be marked **monthly** in the
-Budget tab. Stats checks them against their own budget only ("Not yet", within budget,
-or over) and leaves them out of the daily pace, the daily allowance and the day-by-day
-view. Projected savings count each one at its budget until it comes in higher.
+Budget tab, even if each month's total comes in several payments. Stats checks them
+against their own budget only ("Not yet", within budget, or over) and leaves them out of
+the daily pace and the daily allowance. Day by day can still show each one on its own,
+without a daily allowance. Projected savings count each one at its budget until it
+comes in higher.
 
 ## Spending outside the monthly budget
 

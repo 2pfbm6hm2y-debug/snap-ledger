@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.14.0';
+const APP_VERSION = '1.14.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -721,8 +721,8 @@ function statsByCategory(ym, seg) {
       </button>`;
     }).join('') + `</section>`;
   }
-  const sel = statsSel(dailyB);
-  h += dailySection(ym, dailyB, sel);
+  const sel = statsSel(withB);
+  h += dailySection(ym, withB, sel);
   h += trendSection(ym, withB.length ? sel : null);
   if (unb.length) {
     h += `<section class="sec"><div class="sec-h"><h2>No budget set</h2><span class="muted" style="font-size:13px">Share of spending</span></div>` + unb.map(r => {
@@ -865,12 +865,14 @@ function statsSel(withB) {
   S.dailyCat = sel === 'all' || withB.some(c => c.id === sel) ? sel : 'all';
   return S.dailyCat;
 }
+// "All" covers daily categories only, so a monthly bill landing doesn't read as a blowout. A monthly
+// category on its own shows its amounts by day, with no daily allowance to measure against.
 function dailySection(ym, withB, sel) {
   if (!withB.length) return '';
-  const all = sel === 'all', c = all ? null : catById(sel);
-  const budget = all ? withB.reduce((n, x) => n + x.budget, 0) : c.budget, name = all ? (budgetCats().some(isMonthly) ? 'All daily categories' : 'All budgeted categories') : c.name;
-  const ids = new Set(all ? withB.map(x => x.id) : [sel]);
-  const days = daysIn(ym), allow = budget / days;
+  const all = sel === 'all', c = all ? null : catById(sel), daily = withB.filter(x => !isMonthly(x)), mon = !all && isMonthly(c);
+  const budget = all ? daily.reduce((n, x) => n + x.budget, 0) : c.budget, name = all ? (withB.some(isMonthly) ? 'All daily categories' : 'All budgeted categories') : c.name;
+  const ids = new Set(all ? daily.map(x => x.id) : [sel]);
+  const days = daysIn(ym), allow = mon ? Infinity : budget / days;
   const byDay = new Array(days + 1).fill(0);
   monthTx(ym).forEach(t => { if (t.type === 'exp' && ids.has(t.cat)) byDay[+t.d.slice(8, 10)] += spendAmt(t); });
   const nowYm = ymOf(todayISO());
@@ -888,6 +890,7 @@ function dailySection(ym, withB, sel) {
     const heat = ratio <= 1.25 ? 'h1' : ratio <= 1.75 ? 'h2' : ratio <= 2.5 ? 'h3' : 'h4';
     const cls = fut ? 'fut' : over ? 'over ' + heat : v > 0.004 ? 'in' : 'zero';
     const label = `${dayLabel(iso)}: ${v > 0.004 ? money(v) : 'no spending'}${over ? ', ' + money(v - allow) + ' (' + Math.round((ratio - 1) * 100) + '%) above the daily allowance' : ''}`;
+    if (mon) { cells += `<button class="cal-d ${fut && !v ? 'fut' : v > 0.004 ? 'in' : fut ? 'fut' : 'zero'}" data-act="drill-day" data-id="${esc(sel)}" data-d="${iso}" aria-label="${esc(label)}"${fut && !v ? ' disabled' : ''}><span class="cal-n">${d}</span><span class="cal-v">${v > 0.004 ? short(v) : ''}</span></button>`; continue; }
     cells += `<button class="cal-d ${cls}" data-act="drill-day" data-id="${esc(sel)}" data-d="${iso}" aria-label="${esc(label)}"${fut && !v ? ' disabled' : ''}>
       <span class="cal-n">${d}</span><span class="cal-v">${v > 0.004 ? short(v) : ''}</span></button>`;
   }
@@ -895,6 +898,10 @@ function dailySection(ym, withB, sel) {
   return `<section class="sec" id="daily"><div class="sec-h"><h2>Day by day</h2><span class="muted" style="font-size:13px">${esc(name)}</span></div>
     ${chips}
     <p class="muted" style="font-size:12px;margin:-2px 0 8px">This choice also sets the six-month trend below.</p>
+    ${mon ? (() => { const tot = round2(byDay.reduce((n, v) => n + v, 0));
+      return `<p class="daily-sum">${esc(c.name)} is paid monthly, so there's no daily allowance. <b class="num">${money(tot)}</b> of <span class="num">${money(budget, 0)}</span> this month${tot > budget + 0.004 ? `, <b class="t-bad">over by ${money(tot - budget, 0)}</b>` : ''}.</p>
+      <div class="cal">${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(w => `<span class="cal-w">${w}</span>`).join('')}${cells}</div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Amounts in ${esc(cur())}. Tap a day to see its transactions.</p></section>`; })() : ''}${mon ? '' : `
     <p class="daily-sum">Daily allowance <b class="num">${money(allow)}</b> <span class="muted">(${money(budget, 0)} ÷ ${days} days)</span><br>
     ${upto ? (overDays ? `Above it on <b class="t-warn">${overDays} of ${upto} day${upto === 1 ? '' : 's'}</b>${ym === nowYm ? ' so far' : ''}, by <span class="num">${money(overAmt, 0)}</span> in total.` : `Within it every day${ym === nowYm ? ' so far' : ''}.`) : 'This month hasn\'t started.'}</p>
     <div class="cal">${['M', 'T', 'W', 'T', 'F', 'S', 'S'].map(w => `<span class="cal-w">${w}</span>`).join('')}${cells}</div>
@@ -902,7 +909,7 @@ function dailySection(ym, withB, sel) {
     <div class="heat-scale"><span><i class="sw h1"></i>up to 25%</span><span><i class="sw h2"></i>25–75%</span><span><i class="sw h3"></i>75–150%</span><span><i class="sw h4"></i>over 150%</span></div>
     <div class="cal-legend"><span><i class="sw in"></i>Within allowance</span><span><i class="sw zero"></i>No spending</span></div>
     <p class="muted" style="font-size:12px;margin:8px 0 0">Amounts in ${esc(cur())}. Tap a day to see its transactions.</p>
-  </section>`;
+  </section>`}`;
 }
 function statsByCard(ym, seg) {
   const m = spendByAcc(ym);
@@ -935,7 +942,7 @@ function vBudget() {
     <p class="muted" style="font-size:13px;margin:14px 0 0">Add, rename, reorder or remove categories in Settings.</p>
   </section>
   <section class="sec"><div class="sec-h"><h2>Paid once a month</h2></div>
-    <p class="muted" style="font-size:13px;margin:0 0 12px">For bills that land once a month, like rent, tithe or utilities. Stats checks them against their own budget only, and leaves them out of the daily pace and the day-by-day view. Tap a category to switch it between daily and monthly.</p>
+    <p class="muted" style="font-size:13px;margin:0 0 12px">For bills that land once a month, like rent, tithe or utilities. They can be spread over several payments. Stats checks them against their own budget only and leaves them out of the daily pace. Tap a category to switch it between daily and monthly.</p>
     <div class="chips wrap" role="group" aria-label="Categories paid once a month">${inB.map(c => `<button class="chip${isMonthly(c) ? ' on' : ''}" data-act="toggle-monthly" data-id="${esc(c.id)}" aria-pressed="${isMonthly(c) ? 'true' : 'false'}">${esc(c.name)}</button>`).join('')}</div>
   </section>
   <section class="sec"><div class="sec-h"><h2>Savings</h2></div>
