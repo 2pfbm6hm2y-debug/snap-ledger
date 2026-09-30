@@ -54,10 +54,18 @@ to you, and each claim shows how much of it has come back.
 
 Bills that land once a month, like rent or utilities, can be marked **monthly** in the
 Budget tab, even if each month's total comes in several payments. Stats checks them
-against their own budget only ("Not yet", within budget, or over) and leaves them out of
-the daily pace and the daily allowance. Day by day can still show each one on its own,
-without a daily allowance. Projected savings count each one at its budget until it
-comes in higher.
+against their own budget only ("due", paid, or over) and leaves them out of the daily
+pace. If one comes in over budget, the difference comes out of what's left for daily
+spending. Projected savings count each one at its budget until it comes in higher.
+
+## Stats
+
+Stats opens with what you can spend a day for the rest of the month, next to what you
+planned, and one bar for the whole budget with a marker for where today's plan is. Below
+it are your categories in your own order, each with one status in words, and a switch
+to see spending by card. Tap the month or any category to see it day by day and over the
+last six months. Savings shows this month's projection against your target and the
+months before it, and the running total for Special Spending sits at the bottom.
 
 ## Spending outside the monthly budget
 
