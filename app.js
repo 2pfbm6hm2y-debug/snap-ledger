@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.10.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -321,6 +321,9 @@ function statusNote(stt, left, isNow, daysLeft) {
    bank's figure, and anything dated after today hasn't happened yet. Balances are kept as net worth:
    accounts positive, card debt negative. shown() turns that into what the bank app shows. */
 const sameOrAfter = (t, cp) => t.d > cp.d || (t.d === cp.d && (t.t || 0) > (cp.t || 0));
+// The day money actually moved. A future-dated entry marked as already paid (t.paid) moves the
+// balance from that day, while budgets and Stats still count it on its own date.
+const moneyDay = t => t.paid && t.paid < t.d ? t.paid : t.d;
 const shown = (a, v) => isLiab(a) ? -v : v;
 function flowOf(t, id) {
   if (t.type === 'exp') return t.acc === id ? -t.amt : 0;
@@ -333,7 +336,11 @@ function balances() {
   all.forEach(t => { if (t.type === 'adj' && isFinite(t.bal) && accById(t.acc)) { const o = out[t.acc]; if (!o || sameOrAfter(t, o.cp)) out[t.acc] = { cp: t, v: 0 }; } });
   Object.keys(out).forEach(id => {
     const cp = out[id].cp; let v = cp.bal;
-    all.forEach(t => { if (t.type !== 'adj' && t.d <= today && (t.acc === id || t.to === id) && sameOrAfter(t, cp)) v += flowOf(t, id); });
+    all.forEach(t => {
+      if (t.type === 'adj' || (t.acc !== id && t.to !== id)) return;
+      const md = moneyDay(t);
+      if (md <= today && sameOrAfter({ d: md, t: t.t }, cp)) v += flowOf(t, id);
+    });
     out[id].v = round2(v);
   });
   return out;
@@ -530,14 +537,14 @@ function vLedger() {
       ${g.items.map(t => {
         const k = kindOf(t), open = `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}">`;
         if (k === 'xfer') return `${open}<span class="tx-cat">Transfer</span>
-          <span class="tx-main"><span class="tx-m">${esc(t.m || 'Transfer')}</span><span class="tx-acc">${esc(accShort(t.acc))} → ${esc(accShort(t.to))}</span></span>
+          <span class="tx-main"><span class="tx-m">${esc(t.m || 'Transfer')}</span><span class="tx-acc">${esc(accShort(t.acc))} → ${esc(accShort(t.to))}${whenTag(t)}</span></span>
           <span class="tx-amt xfer">${money(t.amt)}</span></button>`;
         if (k === 'adj') { const a = accById(t.acc); return `${open}<span class="tx-cat">Balance</span>
           <span class="tx-main"><span class="tx-m">${esc(t.m || 'Balance correction')}</span><span class="tx-acc">${esc(accShort(t.acc))} · ${isLiab(a) ? 'owed' : 'balance'} ${money(shown(a, t.bal))}</span></span>
           <span class="tx-amt adj">${esc(adjText(t))}</span></button>`; }
         return `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}">
           <span class="tx-cat">${esc(catName(t.cat))}</span>
-          <span class="tx-main"><span class="tx-m">${esc(t.m || catName(t.cat))}</span><span class="tx-acc">${esc(accName(t.acc))}${k === 'ref' ? ' · Refund' : ''}</span></span>
+          <span class="tx-main"><span class="tx-m">${esc(t.m || catName(t.cat))}</span><span class="tx-acc">${esc(accName(t.acc))}${k === 'ref' ? ' · Refund' : ''}${whenTag(t)}</span></span>
           <span class="tx-amt ${k}">${k === 'inc' ? '+' : ''}${money(k === 'ref' ? Math.abs(t.amt) : t.amt)}</span>
         </button>`;
       }).join('')}</section>`;
@@ -1225,12 +1232,12 @@ function approveRows() {
     if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
     touched[ym] = 1; count[ym] = (count[ym] || 0) + 1;
     if (r.kind === 'xfer') {
-      mo()[ym].txns.push({ id: newId(), d: r.d, amt: round2(r.amt), type: 'xfer', acc: r.from, to: r.to, cat: '', m: (r.m || '').trim().slice(0, 60) || 'Transfer', raw: r.raw, src: 'scan', t: Date.now() });
+      mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.amt), type: 'xfer', acc: r.from, to: r.to, cat: '', m: (r.m || '').trim().slice(0, 60) || 'Transfer', raw: r.raw, src: 'scan', t: Date.now() }));
       rememberPayFrom(r.from, r.to);
       return;
     }
     const m = (r.m || '').trim().slice(0, 60) || catName(r.cat);
-    mo()[ym].txns.push({ id: newId(), d: r.d, amt: round2(r.kind === 'ref' ? -r.amt : r.amt), type: r.kind === 'inc' ? 'inc' : 'exp', acc: r.acc, cat: r.cat, m, raw: r.raw, src: 'scan', t: Date.now() });
+    mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.kind === 'ref' ? -r.amt : r.amt), type: r.kind === 'inc' ? 'inc' : 'exp', acc: r.acc, cat: r.cat, m, raw: r.raw, src: 'scan', t: Date.now() }));
     const k = SnapParse.normKey(r.raw);
     if (k) { delete rules[k]; rules[k] = { c: r.cat, m }; }
   });
@@ -1355,6 +1362,7 @@ function renderSheet() {
       <label class="field" id="f-to-w"${isX ? '' : ' hidden'}><span>To</span><select class="in" id="f-to">${accOptions(defTo)}</select></label>
       <p class="muted" id="f-x-note" style="font-size:13px;margin-top:-4px"${isX ? '' : ' hidden'}>A transfer moves money between your own accounts, like paying a card bill or topping up a wallet. It isn't spending.</p>
       <label class="field" id="f-cat-w"${isX ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptions(type, t && t.cat ? t.cat : (S.filterCat || firstCat(type)))}</select></label>
+      ${paidFields(t, defDate)}
       <div class="sheet-actions">${t ? '<button class="btn danger" data-act="del-tx">Delete</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="save-tx">Save</button></div>`;
   } else if (s.kind === 'card') {
     const a = s.id ? accById(s.id) : null;
@@ -1414,6 +1422,21 @@ function renderSheet() {
   }
 }
 
+// "Already paid" for entries dated after today. The paid day defaults to when the entry was added.
+function paidFields(t, d) {
+  const today = todayISO(), on = !!(t && t.paid);
+  const pd = on ? t.paid : t && t.t ? isoOf(new Date(t.t)) : today;
+  return `<div id="f-paid-w"${d > today ? '' : ' hidden'}>
+    <label class="tgl"><input type="checkbox" id="f-paid"${on ? ' checked' : ''}><span>Already paid, so it comes off the balance now</span></label>
+    <label class="field" id="f-paid-d-w"${on ? '' : ' hidden'}><span>Paid on</span><input class="in" type="date" id="f-paid-d" value="${esc(pd > today ? today : pd)}" max="${today}"></label>
+    <p class="muted" style="font-size:13px;margin:-4px 0 12px">Budgets and Stats still count it on its date.</p>
+  </div>`;
+}
+function paidIfAhead(rec) { if (rec.d > todayISO()) rec.paid = todayISO(); return rec; }
+function whenTag(t) {
+  if (t.d <= todayISO()) return '';
+  return t.paid && t.paid < t.d ? ` · <span class="tx-when">Paid ${esc(fmtDate(t.paid))}</span>` : ' · <span class="tx-when up">Upcoming</span>';
+}
 function saveTx() {
   const s = S.sheet;
   const kind = $('#f-kind').value, amt = parseAmt($('#f-amt').value), d = $('#f-date').value, acc = $('#f-acc').value, cat = $('#f-cat').value, m = $('#f-m').value.trim();
@@ -1427,7 +1450,9 @@ function saveTx() {
     rec = { d, amt: round2(amt), type: 'xfer', acc, to, cat: '', m: m.slice(0, 60) || 'Transfer' };
     rememberPayFrom(acc, to); saveSettings();
   } else rec = { d, amt: round2(kind === 'ref' ? -amt : amt), type: kind === 'inc' ? 'inc' : 'exp', acc, cat, m: m.slice(0, 60) };
-  const apply = o => { Object.assign(o, rec); if (rec.type !== 'xfer') delete o.to; return o; };
+  const pd = $('#f-paid') && $('#f-paid').checked ? $('#f-paid-d').value : '';
+  if (d > todayISO() && /^\d{4}-\d{2}-\d{2}$/.test(pd)) rec.paid = pd < d ? pd : todayISO();
+  const apply = o => { Object.assign(o, rec); if (rec.type !== 'xfer') delete o.to; if (!rec.paid) delete o.paid; return o; };
   const ym = ymOf(d);
   if (s.id) {
     const old = monthTx(s.ym).find(x => x.id === s.id);
@@ -1695,6 +1720,8 @@ function onField(e, isChange) {
   if (el.id === 'imp-file' && isChange) { addFiles(el.files); el.value = ''; return; }
   if (el.id === 'f-m' && !isChange && S.sheet && S.sheet.kind === 'txn' && !S.sheet.id) { const w = $('#f-sugg'); if (w) w.innerHTML = suggHtml(suggFor(el.value)); return; }
   if (el.id === 'b-val') { const d = $('#b-diff'); if (d && S.sheet) d.innerHTML = balDiffNote(S.sheet.id, parseAmt(el.value)); return; }
+  if (el.id === 'f-date' && $('#f-paid-w')) { $('#f-paid-w').hidden = !(el.value > todayISO()); return; }
+  if (el.id === 'f-paid') { $('#f-paid-d-w').hidden = !el.checked; return; }
   if (el.id === 'f-acc' && isChange && $('#f-kind') && $('#f-kind').value === 'xfer') {
     const to = $('#f-to'); if (to && to.value === el.value) { const g = suggestTo(el.value); if (g) to.value = g; }
     return;
