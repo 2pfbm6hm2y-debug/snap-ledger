@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.12.1';
+const APP_VERSION = '1.12.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -155,7 +155,7 @@ const budgetCats = () => cats().filter(c => c.type === 'exp' && !c.outside && c.
 const allTx = () => Object.values(mo()).reduce((a, m) => a.concat((m && m.txns) || []), []);
 const isLiab = a => !!a && a.kind === 'credit';
 const fmtDate = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: iso.slice(0, 4) === todayISO().slice(0, 4) ? undefined : 'numeric' });
-// Stats shows every amount to one decimal place (set while it renders); elsewhere, cents.
+// Stats shows every amount in whole dollars (set while it renders); elsewhere, cents.
 let moneyDp = null;
 const money = (n, dp = 2) => { const d = moneyDp === null ? dp : moneyDp; return (n < 0 ? '−' : '') + cur() + Math.abs(n).toLocaleString('en-SG', { minimumFractionDigits: d, maximumFractionDigits: d }); };
 const txCount = () => Object.values(mo()).reduce((n, m) => n + ((m && m.txns) || []).length, 0);
@@ -555,7 +555,7 @@ function vLedger() {
 }
 
 function vStats() {
-  moneyDp = 1;
+  moneyDp = 0;
   try { return statsView(); } finally { moneyDp = null; }
 }
 function statsView() {
@@ -771,7 +771,7 @@ function dailySection(ym, withB, sel) {
   let overDays = 0, overAmt = 0;
   for (let d = 1; d <= upto; d++) if (byDay[d] > allow + 0.004) { overDays++; overAmt += byDay[d] - allow; }
   const lead = (new Date(ym + '-01T00:00:00').getDay() + 6) % 7;
-  const short = v => v >= 1000 ? (v / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : v >= 100 ? String(Math.round(v)) : (Math.round(v * 10) / 10).toFixed(1).replace(/\.0$/, '');
+  const short = v => v >= 9999.5 ? Math.round(v / 1000) + 'k' : Math.round(v).toLocaleString('en-SG');
   let cells = '';
   for (let k = 0; k < lead; k++) cells += '<span class="cal-d blank"></span>';
   for (let d = 1; d <= days; d++) {
