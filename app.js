@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.15.6';
+const APP_VERSION = '1.16.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -668,13 +668,63 @@ function monthPlan(ym) {
     dB, totalB, spentB, plan, mOver, todaySp,
     // A day's share counts today in full, so it's worked out from spending before today: it holds
     // steady through the day and equals the plan when you're on pace.
-    perDay: daysLeft && dB > 0 ? Math.max(0, dB - (dSp - todaySp) - mOver) / daysLeft : null,
+    perDay: daysLeft && dB > 0 ? dayLimit(today).limit : null,
     planned: dB / days,
     status: totalB && !future ? budgetStatus(spentB, totalB, frac, plan) : null,
     due: past ? [] : monthly.filter(c => v(c) <= 0.004),
     overBills: monthly.filter(c => v(c) > c.budget + 0.004),
     unb
   };
+}
+// What daily categories can spend on a given day: what was left of their budgets at the start of that
+// day, less any monthly bills already over budget, shared evenly over the days left including that one.
+// Also what they spent that day.
+function dayLimit(iso) {
+  const ym = ymOf(iso), d = +iso.slice(8, 10), b = budgetCats(), daily = b.filter(c => !isMonthly(c)), monthly = b.filter(isMonthly);
+  const dB = daily.reduce((n, c) => n + c.budget, 0);
+  if (!(dB > 0)) return null;
+  const dIds = new Set(daily.map(c => c.id)), mSp = {};
+  let before = 0, on = 0;
+  monthTx(ym).forEach(t => {
+    if (t.type !== 'exp') return;
+    const a = spendAmt(t);
+    if (dIds.has(t.cat)) { if (t.d < iso) before += a; else if (t.d === iso) on += a; }
+    else if (t.d <= iso) mSp[t.cat] = (mSp[t.cat] || 0) + a;
+  });
+  const mOver = monthly.reduce((n, c) => n + Math.max(0, (mSp[c.id] || 0) - c.budget), 0);
+  return { limit: Math.max(0, dB - before - mOver) / (daysIn(ym) - d + 1), spent: round2(on) };
+}
+// Looking back from yesterday: days in a row that daily spending stayed within that day's limit, and
+// how many of the last seven did. Only days since the ledger's first entry count.
+function dailyStreak() {
+  const first = allTx().reduce((m, t) => t.type === 'exp' && (!m || t.d < m) ? t.d : m, '');
+  if (!first) return null;
+  const base = new Date(todayISO() + 'T00:00:00');
+  let streak = 0, run = true, week = 0, weekDays = 0, yesterday = null;
+  for (let i = 1; i <= 90; i++) {
+    const dt = new Date(base); dt.setDate(dt.getDate() - i);
+    const iso = isoOf(dt);
+    if (iso < first) break;
+    const x = dayLimit(iso);
+    if (!x) break;
+    const ok = x.spent <= x.limit + 0.5;
+    if (i === 1) yesterday = x;
+    if (i <= 7) { weekDays++; if (ok) week++; }
+    if (run && ok) streak++; else run = false;
+    if (!run && i >= 7) break;
+  }
+  return weekDays ? { streak, week, weekDays, yesterday } : null;
+}
+function cheerLine() {
+  const k = dailyStreak();
+  if (!k) return '';
+  let msg = '';
+  if (k.streak >= 7) msg = `${k.streak} days in a row within your daily limit. That's a great run!`;
+  else if (k.streak >= 2) msg = `${k.streak} days in a row within your daily limit. Keep it going!`;
+  else if (k.streak === 1) msg = `You kept within yesterday's limit, <span class="num">${money(k.yesterday.spent)}</span> of <span class="num">${money(k.yesterday.limit)}</span>. Nice!`;
+  else if (k.weekDays >= 4 && k.week >= Math.ceil(k.weekDays / 2)) msg = `Within your limit on ${k.week} of the last ${k.weekDays} days.`;
+  if (!msg) return '';
+  return `<div class="cheer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.6 6.1 6.6.6-5 4.4 1.5 6.5L12 16.7l-5.7 3.4 1.5-6.5-5-4.4 6.6-.6z"/></svg><span>${msg}</span></div>`;
 }
 function spentOn(ym, iso, ids) {
   return round2(monthTx(ym).reduce((n, t) => n + (t.type === 'exp' && t.d === iso && ids.has(t.cat) ? spendAmt(t) : 0), 0));
@@ -703,9 +753,23 @@ function gapText(P) {
   return `<span class="t-good">${P.isNow ? `${money(x.under)} under today's plan` : `${money(P.totalB - P.spentB)} under budget`}</span>`;
 }
 function heroSection(P) {
-  const ym = P.ym, mName = monthName(ym);
-  const k = P.isNow ? `Day ${P.day} of ${P.days}` : esc(mName);
-  let h = `<section class="sec hero"><div class="hero-top"><span class="hero-k">${k}</span>${P.future && P.totalB ? '<span class="pill idle">Not started</span>' : pillOf(P.status)}</div>`;
+  const ym = P.ym, mName = monthName(ym), today = P.isNow && P.perDay !== null;
+  let h = `<section class="sec hero">`;
+  if (today) {
+    // Today: what daily categories can spend, what they've spent so far, and a cheer for recent days.
+    const lim = P.perDay, sp = P.todaySp, over = sp > lim + 0.004;
+    const pct = lim > 0.004 ? Math.min(100, sp / lim * 100) : sp > 0.004 ? 100 : 0;
+    h += `<div class="hero-top"><span class="hero-k">Today</span><span class="hero-day">Day ${P.day} of ${P.days}</span></div>
+      <div class="hero-big"><span class="num">${money(lim)}</span><small>to spend today</small></div>
+      <div class="track lg" style="margin-top:12px"><div class="fill ${over ? 'bad' : 'good'}" style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="bar-sub"><span>${sp > 0.004 ? `<span class="num">${money(sp)}</span> spent so far` : 'Nothing spent yet'}</span><span class="${over ? 't-bad' : 't-good'}">${over ? `${money(sp - lim)} over` : `${money(lim - sp)} left`}</span></div>
+      ${lim < 0.5 ? `<p class="hero-note">This month's budget for daily spending is used up.</p>` : ''}
+      <p class="hero-note muted">For your daily categories: ${esc(listNames(P.daily.map(c => c.name)))}.</p>
+      ${cheerLine()}
+      <div class="hero-month"><div class="hero-top"><span class="hero-k">${esc(mName)}</span>${pillOf(P.status)}</div>`;
+  } else {
+    h += `<div class="hero-top"><span class="hero-k">${P.isNow ? `Day ${P.day} of ${P.days}` : esc(mName)}</span>${P.future && P.totalB ? '<span class="pill idle">Not started</span>' : pillOf(P.status)}</div>`;
+  }
   if (!P.totalB) {
     const total = Object.keys(P.sp).reduce((n, id) => n + (isOutside(id) ? 0 : P.sp[id]), 0);
     h += `<div class="hero-big"><span class="num">${money(total)}</span><small>spent</small></div>
@@ -713,10 +777,8 @@ function heroSection(P) {
       <button class="btn small" data-act="tab" data-tab="budget" style="margin-top:12px">Set budgets</button>`;
     return h + heroLinks(ym) + `</section>`;
   }
-  if (P.isNow && P.perDay !== null) {
-    const none = P.perDay < 0.5;
-    h += `<div class="hero-big"><span class="num">${money(P.perDay)}</span><small>a day</small></div>
-      <p class="hero-sub">${none ? `Nothing left for daily spending in ${esc(mName)}.` : daysPhrase(P).replace(/^f/, 'F') + '.'} You planned <span class="num">${money(P.planned)}</span> a day.${P.todaySp > 0.004 ? ` Today so far: <span class="num">${money(P.todaySp)}</span>.` : ''}</p>`;
+  if (today) {
+    // the month's bar follows below
   } else if (P.isNow) {
     h += `<div class="hero-big"><span class="num">${money(Math.max(0, P.totalB - P.spentB))}</span><small>left</small></div>
       <p class="hero-sub">Of your <span class="num">${money(P.totalB)}</span> budget for ${esc(mName)}.</p>`;
@@ -738,6 +800,7 @@ function heroSection(P) {
   if (!P.past && P.due.length) notes.push(P.due.length > 3 ? `Still to come: <span class="num">${money(P.due.reduce((n, c) => n + c.budget, 0))}</span> in ${P.due.length} monthly bills.`
     : `Still to come: ${P.due.map(c => `${esc(c.name)} <span class="num">${money(c.budget)}</span>`).join(', ')}.`);
   if (notes.length) h += notes.map(n => `<p class="hero-note">${n}</p>`).join('');
+  if (today) h += `</div>`;
   return h + heroLinks(ym) + `</section>`;
 }
 // Savings for the month in one line, then the way into the day by day and the trend.
@@ -803,7 +866,7 @@ function statSheetHtml(id) {
   if (all && P.totalB) {
     pill = P.future ? '<span class="pill idle">Not started</span>' : pillOf(P.status);
     of = `of <span class="sm-num">${money(P.totalB)}</span>`; line = gapText(P);
-    if (P.perDay !== null) per = `${P.perDay < 0.5 ? 'Nothing left for daily spending.' : `<span class="num">${money(P.perDay)}</span> a day ${daysPhrase(P)}.`} You planned <span class="num">${money(P.planned)}</span> a day.`;
+    if (P.perDay !== null) per = P.perDay < 0.5 ? 'Nothing left for daily spending.' : `<span class="num">${money(P.perDay)}</span> a day ${daysPhrase(P)}.`;
   } else if (all) {
     of = 'spent'; line = 'No budgets set';
   } else if (budgeted) {
@@ -812,7 +875,7 @@ function statSheetHtml(id) {
     of = `of <span class="sm-num">${money(c.budget)}</span>`; line = `<span class="${tone(x.k)}">${esc(x.long || (x.k === 'bad' ? x.text + ' budget' : x.text))}</span>`;
     if (!mon && P.isNow) {
       const before = v - spentOn(ym, todayISO(), new Set([id])), left = Math.max(0, c.budget - before) / P.daysLeft;
-      per = `${left < 0.5 ? `Nothing left ${P.daysLeft === 1 ? 'for today' : 'for the rest of the month'}.` : `<span class="num">${money(left)}</span> a day ${daysPhrase(P)}.`} You planned <span class="num">${money(c.budget / P.days)}</span> a day.`;
+      per = left < 0.5 ? `Nothing left ${P.daysLeft === 1 ? 'for today' : 'for the rest of the month'}.` : `<span class="num">${money(left)}</span> a day ${daysPhrase(P)}.`;
     } else if (mon) per = 'Paid monthly, so it has no daily budget.';
   } else {
     of = 'spent'; line = 'No budget set';
@@ -1562,7 +1625,7 @@ function welcomeSteps() {
   steps.push({
     icon: ICON.budget,
     title: 'Set budgets and track',
-    body: `<p>Set a monthly amount per category in <b>Budget</b>. <b>Stats</b> then leads with what you can spend a day for the rest of the month, and shows each category as <b class="t-good">On track</b>, <b class="t-warn">At risk</b> (ahead of today's plan) or <b class="t-bad">Over</b>.</p><ul><li>Tap the month or any category to see it day by day and over the last six months.</li><li>Mark bills that land once a month, like rent or utilities, as <b>monthly</b> in the Budget tab so they don't throw off the daily pace.</li><li>Big one-offs like flights go in <b>Special Spending</b>, which sits outside the monthly budget and gets a running total for the year.</li><li>Set your expected income in the Budget tab. Your savings target is what's left after your budgets, and Stats projects what you'll save.</li><li>Rename, reorder or add categories in Settings.</li></ul>`
+    body: `<p>Set a monthly amount per category in <b>Budget</b>. <b>Stats</b> then leads with what you can spend today, and shows each category as <b class="t-good">On track</b>, <b class="t-warn">At risk</b> (ahead of today's plan) or <b class="t-bad">Over</b>.</p><ul><li>Tap the month or any category to see it day by day and over the last six months.</li><li>Mark bills that land once a month, like rent or utilities, as <b>monthly</b> in the Budget tab so they don't throw off the daily pace.</li><li>Big one-offs like flights go in <b>Special Spending</b>, which sits outside the monthly budget and gets a running total for the year.</li><li>Set your expected income in the Budget tab. Your savings target is what's left after your budgets, and Stats projects what you'll save.</li><li>Rename, reorder or add categories in Settings.</li></ul>`
   });
   steps.push({
     icon: ICON.wallet,

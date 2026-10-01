@@ -238,6 +238,14 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .track.lg{height:12px;border-radius:6px}
 .track.lg .fill{border-radius:6px}
 .hero-note{font-size:13px;line-height:1.45;color:var(--ink-2);margin:10px 0 0}
+.hero-note.muted{color:var(--muted)}
+.hero-day{font-size:13px;color:var(--muted)}
+.hero-month{margin:16px -16px 0;padding:14px 16px 0;border-top:1px solid var(--line)}
+.cheer{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:10px 12px;border-radius:12px;background:var(--good-soft);color:var(--good);font-size:14px;font-weight:600;line-height:1.4;animation:cheer-in .5s ease-out both}
+.cheer svg{width:18px;height:18px;flex:none;margin-top:1px;fill:currentColor;animation:cheer-star .9s .25s ease-out both}
+@keyframes cheer-in{from{opacity:0;transform:translateY(6px) scale(.97)}}
+@keyframes cheer-star{0%{transform:scale(0) rotate(-60deg)} 60%{transform:scale(1.25) rotate(10deg)} 100%{transform:none}}
+@media (prefers-reduced-motion: reduce){.cheer,.cheer svg{animation:none}}
 .hero-links{margin:14px -16px 0;border-top:1px solid var(--line)}
 .hero-link{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;min-height:48px;text-align:left;padding:10px 12px 10px 16px;font-size:14px;color:var(--ink)}
 .hero-link+.hero-link{border-top:1px solid var(--line)}
