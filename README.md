@@ -54,8 +54,8 @@ to you, and each claim shows how much of it has come back.
 
 Bills that land once a month, like rent or utilities, can be marked **monthly** in the
 Budget tab, even if each month's total comes in several payments. Stats checks them
-against their own budget only ("due", paid, or over) and leaves them out of the daily
-pace. If one comes in over budget, the difference comes out of what's left for daily
+against their own budget only and leaves them out of the daily pace, so they stay green
+until they go over. If one comes in over budget, the difference comes out of what's left for daily
 spending. Projected savings count each one at its budget until it comes in higher.
 
 ## Stats

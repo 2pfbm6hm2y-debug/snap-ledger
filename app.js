@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.15.1';
+const APP_VERSION = '1.15.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -680,16 +680,12 @@ function spentOn(ym, iso, ids) {
 const daysPhrase = P => P.daysLeft === 1 ? `for today, the last day of ${esc(monthName(P.ym))}` : `for the next ${P.daysLeft} days, today included`;
 const listNames = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
 const pillOf = x => x ? `<span class="pill ${x.k}">${x.icon || ''}${esc(x.label)}</span>` : '';
-// A category against its own budget: one status, in words.
+// A category against its own budget: one status, in words, the same for daily and monthly ones.
+// Monthly bills aren't paced, so they stay on track until they go over budget.
 function catState(c, P) {
   const v = P.sp[c.id] || 0, left = c.budget - v;
   if (v > c.budget + 0.004) return { k: 'bad', icon: ICON.over, label: 'Over', text: `${money(v - c.budget)} over` };
-  if (isMonthly(c)) {
-    if (v <= 0.004) return P.past ? { k: 'idle', label: 'Nothing this month', text: 'Nothing this month' } : { k: 'idle', label: 'Not yet', text: `${money(c.budget)} due` };
-    if (left < 0.5) return { k: 'good', icon: ICON.ok, label: 'Paid', text: 'Paid' };
-    return { k: 'good', icon: ICON.ok, label: 'Within budget', text: `${money(left)} ${P.past ? 'under' : 'left'}` };
-  }
-  if (P.isNow && v > c.budget * P.frac + 0.004) return { k: 'warn', icon: ICON.warn, label: 'At risk', text: `${money(v - c.budget * P.frac)} over plan`, long: `${money(v - c.budget * P.frac)} over today's plan` };
+  if (!isMonthly(c) && P.isNow && v > c.budget * P.frac + 0.004) return { k: 'warn', icon: ICON.warn, label: 'At risk', text: `${money(v - c.budget * P.frac)} over plan`, long: `${money(v - c.budget * P.frac)} over today's plan` };
   return { k: 'good', icon: ICON.ok, label: P.past ? 'Within budget' : 'On track', text: `${money(left)} ${P.past ? 'under' : 'left'}` };
 }
 // The gap between spending and the plan, for the whole budget.
@@ -806,7 +802,7 @@ function statSheetHtml(id) {
     of = 'spent'; line = 'No budgets set';
   } else if (budgeted) {
     const x = catState(c, P);
-    pill = pillOf(x.k === 'idle' ? { k: 'idle', label: x.label } : x);
+    pill = pillOf(x);
     of = `of <span class="sm-num">${money(c.budget)}</span>`; line = `<span class="${tone(x.k)}">${esc(x.long || (x.k === 'bad' ? x.text + ' budget' : x.text))}</span>`;
     if (!mon && P.isNow) {
       const before = v - spentOn(ym, todayISO(), new Set([id])), left = Math.max(0, c.budget - before) / P.daysLeft;
