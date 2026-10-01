@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.15.5';
+const APP_VERSION = '1.15.6';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -442,7 +442,7 @@ function balDiffNote(id, x) {
 function saveBalance() {
   const a = S.sheet && accById(S.sheet.id); if (!a) return;
   const x = parseAmt($('#b-val').value);
-  if (!isFinite(x)) return toast('Enter the figure from your bank app.');
+  if (!isFinite(x)) return flagField('b-val', 'Enter the figure from your bank app.');
   const b = balances()[a.id], bal = round2(isLiab(a) ? -x : x), amt = b ? round2(bal - b.v) : bal;
   const d = todayISO(), ym = ymOf(d);
   if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
@@ -1718,7 +1718,7 @@ function updateOwed() {
 function saveTx() {
   const s = S.sheet;
   const kind = $('#f-kind').value, amt = parseAmt($('#f-amt').value), d = $('#f-date').value, acc = $('#f-acc').value, cat = $('#f-cat').value, m = $('#f-m').value.trim();
-  if (!(amt > 0)) return toast('Enter an amount above zero.');
+  if (!(amt > 0)) return flagField('f-amt', 'Enter an amount above zero.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return toast('Pick a date.');
   if (!accById(acc)) return toast('Add a card first in the Cards tab.');
   let rec;
@@ -1766,7 +1766,7 @@ function saveTx() {
 }
 function saveCard() {
   const name = $('#c-name').value.trim(), l4 = $('#c-l4').value.replace(/\D/g, '').slice(-4), kind = $('#c-kind').value, match = $('#c-match').value.trim().slice(0, 80);
-  if (!name) return toast('Give the card a name.');
+  if (!name) return flagField('c-name', 'Give the card a name.');
   const s = S.sheet;
   if (s.id) Object.assign(accById(s.id), { name, last4: l4, kind, match });
   else st().accounts.push({ id: newId(), name, last4: l4, kind, match });
@@ -1788,7 +1788,15 @@ async function exportCsv() {
 
 /* ---------- toast ---------- */
 let toastT;
-function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 3200); }
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.hidden = false;
+  // With a form open, the keyboard can cover the bottom of the screen, so show it at the top of what's visible.
+  const up = !!S.sheet, vv = window.visualViewport;
+  t.classList.toggle('up', up); t.style.top = up ? ((vv ? vv.offsetTop : 0) + 12) + 'px' : '';
+  clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 3200);
+}
+// Points at the field a form needs before it can save.
+function flagField(id, msg) { const f = $('#' + id); if (f) { f.classList.add('unsure'); f.focus(); } toast(msg); }
 
 /* ---------- celebration ----------
    A bunny hops up, jumps for joy with a burst of confetti, shows how many entries went in, and hops
@@ -2028,6 +2036,7 @@ document.addEventListener('click', e => {
 
 function onField(e, isChange) {
   const el = e.target;
+  if (!isChange && el.classList && el.classList.contains('unsure') && (el.id === 'c-name' || el.id === 'f-amt' || el.id === 'b-val')) el.classList.remove('unsure');
   if (el.id === 'imp-acc') { S.imp.accountId = el.value; return; }
   if (el.id === 'restore-file') { if (isChange && el.files && el.files[0]) readBackup(el.files[0]); if (isChange) el.value = ''; return; }
   if (el.id === 'imp-text') {

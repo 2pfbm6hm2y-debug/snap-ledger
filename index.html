@@ -482,7 +482,10 @@ input[type=date].in::-webkit-datetime-edit{padding:0}
 .sub-h{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:16px 0 8px}
 .kv{display:flex;justify-content:space-between;align-items:center;gap:10px;padding-block:8px;border-top:1px solid var(--line);font-size:14px}
 
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--tabh) + 20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:30;box-shadow:var(--shadow);max-width:calc(100% - 32px);text-align:center}
+.toast{position:fixed;left:0;right:0;margin-inline:auto;width:max-content;bottom:calc(var(--tabh) + 20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:30;box-shadow:var(--shadow);max-width:calc(100% - 32px);text-align:center}
+.toast.up{bottom:auto;margin-top:env(safe-area-inset-top,0px)}
+/* Narrow screens (320px wide): keep the month switcher inside the screen. */
+@media (max-width:340px){.month-lab{min-width:0;font-size:15px;padding-inline:4px} .month .icon-btn{width:34px}}
 .loading{padding:60px 0;text-align:center;color:var(--muted)}
 .banner.wrap{flex-wrap:wrap}
 .banner-acts{display:flex;gap:8px;flex-wrap:wrap}
