@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.16.1';
+const APP_VERSION = '1.16.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -669,6 +669,7 @@ function monthPlan(ym) {
     // A day's share counts today in full, so it's worked out from spending before today: it holds
     // steady through the day and equals the plan when you're on pace.
     perDay: daysLeft && dB > 0 ? dayLimit(today).limit : null,
+    todayInfo: daysLeft && dB > 0 ? dayLimit(today) : null,
     planned: dB / days,
     status: totalB && !future ? budgetStatus(spentB, totalB, frac, plan) : null,
     due: past ? [] : monthly.filter(c => v(c) <= 0.004),
@@ -677,8 +678,9 @@ function monthPlan(ym) {
   };
 }
 // What daily categories can spend on a given day: what was left of their budgets at the start of that
-// day, less any monthly bills already over budget, shared evenly over the days left including that one.
-// Also what they spent that day.
+// day, less any monthly bills already over budget, shared evenly over the days left including that one,
+// and never more than the daily budget (their monthly budget split over the month's days). Spending
+// less early on doesn't raise later days' limits. Also what they spent that day.
 function dayLimit(iso) {
   const ym = ymOf(iso), d = +iso.slice(8, 10), b = budgetCats(), daily = b.filter(c => !isMonthly(c)), monthly = b.filter(isMonthly);
   const dB = daily.reduce((n, c) => n + c.budget, 0);
@@ -691,8 +693,9 @@ function dayLimit(iso) {
     if (dIds.has(t.cat)) { if (t.d < iso) before += a; else if (t.d === iso) on += a; }
     else if (t.d <= iso) mSp[t.cat] = (mSp[t.cat] || 0) + a;
   });
-  const mOver = monthly.reduce((n, c) => n + Math.max(0, (mSp[c.id] || 0) - c.budget), 0);
-  return { limit: Math.max(0, dB - before - mOver) / (daysIn(ym) - d + 1), spent: round2(on) };
+  const mOver = monthly.reduce((n, c) => n + Math.max(0, (mSp[c.id] || 0) - c.budget), 0), days = daysIn(ym), daily0 = dB / days;
+  const share = Math.max(0, dB - before - mOver) / (days - d + 1);
+  return { limit: Math.min(daily0, share), daily: daily0, dB, days, mOver, ahead: before > daily0 * (d - 1) + 0.5, overBills: monthly.filter(c => (mSp[c.id] || 0) > c.budget + 0.004), spent: round2(on) };
 }
 // Looking back from yesterday: days in a row that daily spending stayed within that day's limit, and
 // how many of the last seven did. Only days since the ledger's first entry count.
@@ -763,8 +766,14 @@ function heroSection(P) {
       <div class="hero-big"><span class="num">${money(lim)}</span><small>to spend today</small></div>
       <div class="track lg" style="margin-top:12px"><div class="fill ${over ? 'bad' : 'good'}" style="width:${pct.toFixed(1)}%"></div></div>
       <div class="bar-sub"><span>${sp > 0.004 ? `<span class="num">${money(sp)}</span> spent so far` : 'Nothing spent yet'}</span><span class="${over ? 't-bad' : 't-good'}">${over ? `${money(sp - lim)} over` : `${money(lim - sp)} left`}</span></div>
-      ${lim < 0.5 ? `<p class="hero-note">This month's budget for daily spending is used up.</p>` : ''}
-      <p class="hero-note muted">For your daily categories: ${esc(listNames(P.daily.map(c => c.name)))}.</p>
+      <p class="hero-note">${(() => {
+        // Where the figure comes from, in plain words.
+        const I = P.todayInfo, names = esc(listNames(P.daily.map(c => c.name)));
+        const base = `Your daily budget is <span class="num">${money(I.daily)}</span>: the <span class="num">${money(I.dB)}</span> a month for ${names}, split over ${I.days} days.`;
+        if (lim >= I.daily - 0.5) return base;
+        const why = listNames([I.ahead ? 'spending above plan earlier this month' : '', I.overBills.length ? `${esc(listNames(I.overBills.map(c => c.name)))} going over budget` : ''].filter(Boolean)) || 'spending earlier this month';
+        return base + (lim < 0.5 ? ` This month's budget for them is used up, after ${why}.` : ` Today's limit is lower to make up for ${why}.`);
+      })()}</p>
       ${cheerLine()}
       <div class="hero-month"><div class="hero-top"><span class="hero-k">This month</span>${pillOf(P.status)}</div>`;
   } else {
@@ -874,7 +883,7 @@ function statSheetHtml(id) {
     pill = pillOf(x);
     of = `of <span class="sm-num">${money(c.budget)}</span>`; line = `<span class="${tone(x.k)}">${esc(x.long || (x.k === 'bad' ? x.text + ' budget' : x.text))}</span>`;
     if (!mon && P.isNow) {
-      const before = v - spentOn(ym, todayISO(), new Set([id])), left = Math.max(0, c.budget - before) / P.daysLeft;
+      const before = v - spentOn(ym, todayISO(), new Set([id])), left = Math.min(c.budget / P.days, Math.max(0, c.budget - before) / P.daysLeft);
       per = left < 0.5 ? `Nothing left ${P.daysLeft === 1 ? 'for today' : 'for the rest of the month'}.` : `<span class="num">${money(left)}</span> a day ${daysPhrase(P)}.`;
     } else if (mon) per = 'Paid monthly, so it has no daily budget.';
   } else {
