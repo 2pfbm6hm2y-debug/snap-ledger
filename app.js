@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.15.3';
+const APP_VERSION = '1.15.4';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -685,7 +685,10 @@ const pillOf = x => x ? `<span class="pill ${x.k}">${x.icon || ''}${esc(x.label)
 function catState(c, P) {
   const v = P.sp[c.id] || 0, left = c.budget - v;
   if (v > c.budget + 0.004) return { k: 'bad', icon: ICON.over, label: 'Over', text: `${money(v - c.budget)} over` };
-  if (!isMonthly(c) && P.isNow && v > c.budget * P.frac + 0.004) return { k: 'warn', icon: ICON.warn, label: 'At risk', text: `${money(v - c.budget * P.frac)} over plan`, long: `${money(v - c.budget * P.frac)} over today's plan` };
+  const paced = !isMonthly(c) && P.isNow, plan = c.budget * P.frac;
+  if (paced && v > plan + 0.004) return { k: 'warn', icon: ICON.warn, label: 'At risk', text: `${money(v - c.budget * P.frac)} over plan`, long: `${money(v - c.budget * P.frac)} over today's plan` };
+  // On track this month: how far under today's plan, the same measure as "over plan".
+  if (paced) return { k: 'good', icon: ICON.ok, label: 'On track', text: plan - v < 0.5 ? 'On plan' : `${money(plan - v)} under plan`, long: plan - v < 0.5 ? 'Right on today\'s plan' : `${money(plan - v)} under today's plan` };
   return { k: 'good', icon: ICON.ok, label: P.past ? 'Within budget' : 'On track', text: `${money(left)} ${P.past ? 'under' : 'left'}` };
 }
 // The gap between spending and the plan, for the whole budget.
