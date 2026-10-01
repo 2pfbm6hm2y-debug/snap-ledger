@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.15.4';
+const APP_VERSION = '1.15.5';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -119,7 +119,7 @@ function makeDemo() {
     });
   }
   s.payFrom = { 'demo-a': 'demo-c', 'demo-b': 'demo-c' };
-  s.expIncome = 5200; s.saveTarget = 3500;
+  s.expIncome = 5200;
   return { settings: s, months };
 }
 
@@ -161,6 +161,9 @@ const spendAmt = t => t.type === 'exp' ? round2(t.amt - owedOf(t)) : 0;
 const accShort = id => (accById(id) || { name: 'No card' }).name;
 const isOutside = id => { const c = catById(id); return !!(c && c.outside); };
 const budgetCats = () => cats().filter(c => c.type === 'exp' && !c.outside && c.budget > 0);
+// The savings target is what's left of expected income once every monthly budget is spent.
+const saveTarget = () => { const inc = st().expIncome > 0 ? st().expIncome : 0, b = budgetCats().reduce((n, c) => n + c.budget, 0); return inc > b ? round2(inc - b) : 0; };
+const targetText = () => { const inc = st().expIncome > 0 ? st().expIncome : 0; return !inc ? 'Not set' : money(saveTarget(), 0); };
 // Monthly categories (c.freq === 'monthly') are bills that land once a month, like rent or utilities.
 // They're judged against their own budget only, not the daily pace.
 const isMonthly = c => !!c && c.freq === 'monthly';
@@ -742,7 +745,7 @@ function heroLinks(ym) {
   let save = '';
   const since = savingsSince(), nowYm = ymOf(todayISO());
   if (since && since <= ym) {
-    const proj = ym >= nowYm, saved = (proj ? projectMonth(ym) : monthFlow(ym)).saved, target = st().saveTarget > 0 ? st().saveTarget : 0;
+    const proj = ym >= nowYm, saved = (proj ? projectMonth(ym) : monthFlow(ym)).saved, target = saveTarget();
     const verb = proj ? (saved >= 0 ? 'Projected to save' : 'Projected shortfall') : (saved >= 0 ? 'Saved' : 'Spent more than earned by');
     const cls = saved < 0 ? 't-bad' : target && saved >= target - 0.004 ? 't-good' : '';
     save = `<button class="hero-link" data-act="goto-savings"><span>${verb} <b class="num ${cls}">${money(Math.abs(saved))}</b>${target && saved > 0 ? ` · ${Math.round(saved / target * 100)}% of target` : ''}</span>${CHEV}</button>`;
@@ -902,11 +905,11 @@ function savingsSince() {
   return since;
 }
 function savingsSection(ym) {
-  const s = st(), target = s.saveTarget > 0 ? s.saveTarget : 0;
+  const target = saveTarget();
   const nowYm = ymOf(todayISO()), ahead = ym >= nowYm, since = savingsSince();
   const head = `<section class="sec" id="savings"><div class="sec-h"><h2>Savings</h2>${target ? `<span class="sec-r">Target <span class="num">${money(target)}</span> a month</span>` : ''}</div>`;
   if (!since) {
-    return head + `<p class="sv-note" style="margin-top:0">See how much you keep each month. Set your expected income and a savings target in the Budget tab, and record your salary as <b>Income</b> when it comes in.</p>
+    return head + `<p class="sv-note" style="margin-top:0">See how much you keep each month. Set your expected income in the Budget tab, and record your salary as <b>Income</b> when it comes in.</p>
       <div class="sheet-actions" style="margin-top:12px"><button class="btn small" data-act="tab" data-tab="budget">Set income and target</button><button class="btn small" data-act="new-income">Add income</button></div></section>`;
   }
   if (since > ym) return head + `<p class="sv-note" style="margin-top:0">No income recorded for ${esc(monthLabel(ym))}.</p></section>`;
@@ -984,10 +987,10 @@ function vBudget() {
     <div class="chips wrap" role="group" aria-label="Categories paid once a month">${inB.map(c => `<button class="chip${isMonthly(c) ? ' on' : ''}" data-act="toggle-monthly" data-id="${esc(c.id)}" aria-pressed="${isMonthly(c) ? 'true' : 'false'}">${esc(c.name)}</button>`).join('')}</div>
   </section>
   <section class="sec"><div class="sec-h"><h2>Savings</h2></div>
-    <p class="muted" style="font-size:13px;margin:0 0 12px">Stats uses these to project how much you'll keep this month and to track each month against your target.</p>
+    <p class="muted" style="font-size:13px;margin:0 0 12px">Your savings target is your expected income minus your monthly budgets, so keeping to every budget hits it. Stats projects how much you'll keep this month and tracks each month against it.</p>
     <div class="bgt-edit">
       <label for="s-inc">Expected monthly income</label><input class="in num" id="s-inc" data-set="expIncome" inputmode="decimal" placeholder="Not set" value="${st().expIncome > 0 ? st().expIncome : ''}">
-      <label for="s-tgt">Monthly savings target</label><input class="in num" id="s-tgt" data-set="saveTarget" inputmode="decimal" placeholder="Not set" value="${st().saveTarget > 0 ? st().saveTarget : ''}">
+      <b class="bgt-total-l">Savings target</b><span class="num bgt-total" id="s-tgt-v">${esc(targetText())}</span>
     </div>
   </section>
   <section class="sec"><div class="sec-h"><h2>Outside the monthly budget</h2></div>
@@ -1559,7 +1562,7 @@ function welcomeSteps() {
   steps.push({
     icon: ICON.budget,
     title: 'Set budgets and track',
-    body: `<p>Set a monthly amount per category in <b>Budget</b>. <b>Stats</b> then leads with what you can spend a day for the rest of the month, and shows each category as <b class="t-good">On track</b>, <b class="t-warn">At risk</b> (ahead of today's plan) or <b class="t-bad">Over</b>.</p><ul><li>Tap the month or any category to see it day by day and over the last six months.</li><li>Mark bills that land once a month, like rent or utilities, as <b>monthly</b> in the Budget tab so they don't throw off the daily pace.</li><li>Big one-offs like flights go in <b>Special Spending</b>, which sits outside the monthly budget and gets a running total for the year.</li><li>Set your expected income and a savings target in the Budget tab, and Stats projects what you'll save.</li><li>Rename, reorder or add categories in Settings.</li></ul>`
+    body: `<p>Set a monthly amount per category in <b>Budget</b>. <b>Stats</b> then leads with what you can spend a day for the rest of the month, and shows each category as <b class="t-good">On track</b>, <b class="t-warn">At risk</b> (ahead of today's plan) or <b class="t-bad">Over</b>.</p><ul><li>Tap the month or any category to see it day by day and over the last six months.</li><li>Mark bills that land once a month, like rent or utilities, as <b>monthly</b> in the Budget tab so they don't throw off the daily pace.</li><li>Big one-offs like flights go in <b>Special Spending</b>, which sits outside the monthly budget and gets a running total for the year.</li><li>Set your expected income in the Budget tab. Your savings target is what's left after your budgets, and Stats projects what you'll save.</li><li>Rename, reorder or add categories in Settings.</li></ul>`
   });
   steps.push({
     icon: ICON.wallet,
@@ -2065,10 +2068,13 @@ function onField(e, isChange) {
       el.value = c.budget ? c.budget : '';
       saveSettings();
       const t = $('#bgt-total'); if (t) t.textContent = money(cats().filter(x => x.type === 'exp' && !x.outside).reduce((s, x) => s + (x.budget > 0 ? x.budget : 0), 0), 0);
+      const g = $('#s-tgt-v'); if (g) g.textContent = targetText();
       return;
     }
-    if (el.dataset.set === 'expIncome' || el.dataset.set === 'saveTarget') {
-      const v = parseAmt(el.value); st()[el.dataset.set] = v > 0 ? round2(v) : null; el.value = v > 0 ? round2(v) : ''; saveSettings(); return;
+    if (el.dataset.set === 'expIncome') {
+      const v = parseAmt(el.value); st().expIncome = v > 0 ? round2(v) : null; el.value = v > 0 ? round2(v) : ''; saveSettings();
+      const g = $('#s-tgt-v'); if (g) g.textContent = targetText();
+      return;
     }
     if (el.dataset.set === 'celebrate') { st().celebrate = el.value; delete st().bunny; saveSettings(); if (el.value !== 'off') celebrate({ badge: 'Hello!', title: 'Hello!', sub: 'This is how adding entries will look.' }); return; }
     if (el.dataset.set === 'cur') { st().cur = el.value.trim().slice(0, 4) || 'S$'; saveSettings(); render(); }

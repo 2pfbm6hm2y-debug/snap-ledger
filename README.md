@@ -64,8 +64,8 @@ Stats opens with what you can spend a day for the rest of the month, next to wha
 planned, and one bar for the whole budget with a marker for where today's plan is. Below
 it are your categories in your own order, each with one status in words, and a switch
 to see spending by card. Tap the month or any category to see it day by day and over the
-last six months. Savings shows this month's projection against your target and the
-months before it, and the running total for Special Spending sits at the bottom.
+last six months. Savings shows this month's projection against your target (expected
+income minus your monthly budgets) and the months before it, and the running total for Special Spending sits at the bottom.
 
 ## Spending outside the monthly budget
 
