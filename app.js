@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.16.2';
+const APP_VERSION = '1.16.3';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -769,7 +769,7 @@ function heroSection(P) {
       <p class="hero-note">${(() => {
         // Where the figure comes from, in plain words.
         const I = P.todayInfo, names = esc(listNames(P.daily.map(c => c.name)));
-        const base = `Your daily budget is <span class="num">${money(I.daily)}</span>: the <span class="num">${money(I.dB)}</span> a month for ${names}, split over ${I.days} days.`;
+        const base = `Your daily budget is <span class="num">${money(I.daily)}</span> for ${names}.`;
         if (lim >= I.daily - 0.5) return base;
         const why = listNames([I.ahead ? 'spending above plan earlier this month' : '', I.overBills.length ? `${esc(listNames(I.overBills.map(c => c.name)))} going over budget` : ''].filter(Boolean)) || 'spending earlier this month';
         return base + (lim < 0.5 ? ` This month's budget for them is used up, after ${why}.` : ` Today's limit is lower to make up for ${why}.`);
