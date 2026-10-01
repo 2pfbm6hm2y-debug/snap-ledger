@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.16.0';
+const APP_VERSION = '1.16.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -766,7 +766,7 @@ function heroSection(P) {
       ${lim < 0.5 ? `<p class="hero-note">This month's budget for daily spending is used up.</p>` : ''}
       <p class="hero-note muted">For your daily categories: ${esc(listNames(P.daily.map(c => c.name)))}.</p>
       ${cheerLine()}
-      <div class="hero-month"><div class="hero-top"><span class="hero-k">${esc(mName)}</span>${pillOf(P.status)}</div>`;
+      <div class="hero-month"><div class="hero-top"><span class="hero-k">This month</span>${pillOf(P.status)}</div>`;
   } else {
     h += `<div class="hero-top"><span class="hero-k">${P.isNow ? `Day ${P.day} of ${P.days}` : esc(mName)}</span>${P.future && P.totalB ? '<span class="pill idle">Not started</span>' : pillOf(P.status)}</div>`;
   }
