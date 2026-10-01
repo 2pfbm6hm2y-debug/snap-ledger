@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.15.2';
+const APP_VERSION = '1.15.3';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -694,7 +694,7 @@ function gapText(P) {
   if (!x) return P.spentB > P.totalB + 0.004 ? `<span class="t-bad">${money(P.spentB - P.totalB)} over budget</span>` : `${money(P.totalB - P.spentB)} left`;
   if (x.k === 'bad') return `<span class="t-bad">${money(x.over)} over budget</span>`;
   if (x.k === 'warn') return `<span class="t-warn">${money(x.ahead)} over today's plan</span>`;
-  return P.isNow ? `${money(x.under)} under today's plan` : `${money(P.totalB - P.spentB)} under budget`;
+  return `<span class="t-good">${P.isNow ? `${money(x.under)} under today's plan` : `${money(P.totalB - P.spentB)} under budget`}</span>`;
 }
 function heroSection(P) {
   const ym = P.ym, mName = monthName(ym);
@@ -793,7 +793,7 @@ function statSheetHtml(id) {
   const v = all ? P.spentB : P.sp[id] || 0;
   // Top: what's been spent against the budget, the status in words, and what's left a day.
   let pill = '', of = '', line = '', per = '';
-  const tone = k => k === 'bad' ? 't-bad' : k === 'warn' ? 't-warn' : '';
+  const tone = k => k === 'bad' ? 't-bad' : k === 'warn' ? 't-warn' : 't-good';
   if (all && P.totalB) {
     pill = P.future ? '<span class="pill idle">Not started</span>' : pillOf(P.status);
     of = `of <span class="sm-num">${money(P.totalB)}</span>`; line = gapText(P);
