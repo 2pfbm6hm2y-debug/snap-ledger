@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.4';
+const APP_VERSION = '1.17.5';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -721,13 +721,12 @@ function dailyStreak() {
 function cheerLine() {
   const k = dailyStreak();
   if (!k) return '';
-  let msg = '';
-  if (k.streak >= 7) msg = `${k.streak} days in a row within your allowance. That's a great run!`;
-  else if (k.streak >= 2) msg = `${k.streak} days in a row within your allowance. Keep it going!`;
-  else if (k.streak === 1) msg = `You kept within yesterday's allowance, <span class="num">${money(k.yesterday.spent)}</span> of <span class="num">${money(k.yesterday.limit)}</span>. Nice!`;
-  else if (k.weekDays >= 4 && k.week >= Math.ceil(k.weekDays / 2)) msg = `Within your allowance on ${k.week} of the last ${k.weekDays} days.`;
-  if (!msg) return '';
-  return `<div class="cheer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.6 6.1 6.6.6-5 4.4 1.5 6.5L12 16.7l-5.7 3.4 1.5-6.5-5-4.4 6.6-.6z"/></svg><span>${msg}</span></div>`;
+  let head = '', sub = '';
+  if (k.streak >= 2) { head = `${k.streak} days in a row`; sub = `Within your allowance each day. ${k.streak >= 7 ? "That's a great run!" : 'Keep it going!'}`; }
+  else if (k.streak === 1) { head = "Within yesterday's allowance"; sub = `${money(k.yesterday.spent)} of ${money(k.yesterday.limit)}. Nice!`; }
+  else if (k.weekDays >= 4 && k.week >= Math.ceil(k.weekDays / 2)) { head = `${k.week} of the last ${k.weekDays} days`; sub = 'Within your allowance. Nice and steady.'; }
+  if (!head) return '';
+  return `<div class="cheer"><span class="cheer-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.4 5.5 6 .6-4.5 4 1.3 5.9L12 16.1l-5.2 3.1 1.3-5.9-4.5-4 6-.6z"/></svg></span><span class="cheer-tx"><b>${head}</b><span>${sub}</span></span></div>`;
 }
 function spentOn(ym, iso, ids) {
   return round2(monthTx(ym).reduce((n, t) => n + (t.type === 'exp' && t.d === iso && ids.has(t.cat) ? spendAmt(t) : 0), 0));
