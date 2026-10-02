@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.16.3';
+const APP_VERSION = '1.16.4';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -991,9 +991,17 @@ function savingsSection(ym) {
   if (target) h += `<div class="track lg" style="margin-top:12px"><div class="fill ${hit ? 'good' : saved < 0 ? 'bad' : ''}" style="width:${Math.max(0, Math.min(100, saved / target * 100)).toFixed(1)}%"></div></div>`;
   h += `<p class="sv-note">${ahead ? `${cur.incExpected ? 'Expected income' : 'Income'} <span class="num">${money(cur.inc)}</span>, less <span class="num">${money(cur.sp)}</span> ${budgetCats().length ? 'if every budget is used up' : 'spent so far'}.` : `Income <span class="num">${money(cur.inc)}</span>, less spending of <span class="num">${money(cur.sp)}</span>.`}${target && hit ? (ahead ? ' That reaches your target.' : ' Target hit.') : ''}</p>`;
   if (target && ahead && !hit) {
-    // Room left: what's still unspent in the budgets. If cutting all of it isn't enough, say what's reachable.
-    const sp = spendByCat(ym), room = budgetCats().reduce((n, c) => n + Math.max(0, c.budget - (sp[c.id] || 0)), 0);
-    h += `<p class="sv-note">${room >= target - saved - 0.004 ? `To reach it, spend <span class="num">${money(target - saved)}</span> less than your budgets allow.` : `Even with no more spending${ym === nowYm ? ' this month' : ''}, you'd save <span class="num">${money(saved + room)}</span>.`}</p>`;
+    // Why the projection falls short of the target, and what makes it up. Categories over budget are
+    // made up by the lower daily limit. Spending outside the budgets isn't, so it needs cutting elsewhere.
+    const sp = spendByCat(ym), b = budgetCats(), gap = target - saved;
+    const room = b.reduce((n, c) => n + Math.max(0, c.budget - (sp[c.id] || 0)), 0);
+    const over = b.filter(c => (sp[c.id] || 0) > c.budget + 0.004);
+    const extra = Object.keys(sp).reduce((n, id) => n + (b.some(c => c.id === id) ? 0 : Math.max(0, sp[id])), 0);
+    const why = listNames([over.length ? `${esc(listNames(over.map(c => c.name)))} going over budget` : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
+    const fix = room < gap - 0.004 ? `Even with no more spending${ym === nowYm ? ' this month' : ''}, you'd save <span class="num">${money(saved + room)}</span>.`
+      : ym === nowYm && extra <= 0.5 && b.some(c => !isMonthly(c)) ? 'Keeping to your daily limit makes it up.'
+      : `To hit the target, spend <span class="num">${money(gap)}</span> less than your budgets allow.`;
+    h += `<p class="sv-note">You're <span class="num">${money(gap)}</span> short of your target${why ? ` because of ${why}` : ''}. ${fix}</p>`;
   }
   // Last six months, this one projected.
   const months = []; for (let k = -5; k <= 0; k++) { const m = addMonths(ym, k); if (m >= since) months.push(Object.assign(mine(m), { ym: m })); }
