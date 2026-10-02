@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.2';
+const APP_VERSION = '1.17.3';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -722,10 +722,10 @@ function cheerLine() {
   const k = dailyStreak();
   if (!k) return '';
   let msg = '';
-  if (k.streak >= 7) msg = `${k.streak} days in a row within your daily limit. That's a great run!`;
-  else if (k.streak >= 2) msg = `${k.streak} days in a row within your daily limit. Keep it going!`;
-  else if (k.streak === 1) msg = `You kept within yesterday's limit, <span class="num">${money(k.yesterday.spent)}</span> of <span class="num">${money(k.yesterday.limit)}</span>. Nice!`;
-  else if (k.weekDays >= 4 && k.week >= Math.ceil(k.weekDays / 2)) msg = `Within your limit on ${k.week} of the last ${k.weekDays} days.`;
+  if (k.streak >= 7) msg = `${k.streak} days in a row within your allowance. That's a great run!`;
+  else if (k.streak >= 2) msg = `${k.streak} days in a row within your allowance. Keep it going!`;
+  else if (k.streak === 1) msg = `You kept within yesterday's allowance, <span class="num">${money(k.yesterday.spent)}</span> of <span class="num">${money(k.yesterday.limit)}</span>. Nice!`;
+  else if (k.weekDays >= 4 && k.week >= Math.ceil(k.weekDays / 2)) msg = `Within your allowance on ${k.week} of the last ${k.weekDays} days.`;
   if (!msg) return '';
   return `<div class="cheer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.6 6.1 6.6.6-5 4.4 1.5 6.5L12 16.7l-5.7 3.4 1.5-6.5-5-4.4 6.6-.6z"/></svg><span>${msg}</span></div>`;
 }
@@ -763,7 +763,7 @@ function heroSection(P) {
     const lim = P.perDay, sp = P.todaySp, over = sp > lim + 0.004;
     const pct = lim > 0.004 ? Math.min(100, sp / lim * 100) : sp > 0.004 ? 100 : 0;
     h += `<div class="hero-top"><span class="hero-k">Today</span><span class="hero-day">Day ${P.day} of ${P.days}</span></div>
-      <div class="hero-big"><span class="num">${money(lim)}</span><small>to spend today</small></div>
+      <div class="hero-big"><span class="num">${money(lim)}</span><small>allowance today</small></div>
       <div class="track lg" style="margin-top:12px"><div class="fill ${over ? 'bad' : 'good'}" style="width:${pct.toFixed(1)}%"></div></div>
       <div class="bar-sub"><span>${sp > 0.004 ? `<span class="num">${money(sp)}</span> spent so far` : 'Nothing spent yet'}</span><span class="${over ? 't-bad' : 't-good'}">${over ? `${money(sp - lim)} over` : `${money(lim - sp)} left`}</span></div>
       <p class="hero-note">${(() => {
@@ -772,7 +772,7 @@ function heroSection(P) {
         const base = `Your daily budget is <span class="num">${money(I.daily)}</span> for ${names}.`;
         if (lim >= I.daily - 0.5) return base;
         const why = listNames([I.ahead ? 'spending above plan earlier this month' : '', I.overBills.length ? `${esc(listNames(I.overBills.map(c => c.name)))} going over budget` : ''].filter(Boolean)) || 'spending earlier this month';
-        return base + (lim < 0.5 ? ` This month's budget for them is used up, after ${why}.` : ` Today's limit is lower to make up for ${why}.`);
+        return base + (lim < 0.5 ? ` There's no allowance left this month, after ${why}.` : ` Today's allowance is lower to make up for ${why}.`);
       })()}</p>
       ${cheerLine()}
       <div class="hero-month"><div class="hero-top"><span class="hero-k">This month</span>${pillOf(P.status)}</div>`;
@@ -1020,8 +1020,8 @@ function savingsSection(ym) {
       why = listNames([P.above.length ? `${P.above.length > 2 ? 'daily spending' : esc(listNames(P.above.map(c => c.name)))} running above plan` : '', P.overBills.length ? `${esc(listNames(P.overBills.map(c => c.name)))} going over budget` : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
       fix = P.toCome < gap - 0.004 ? `Even with no more daily spending this month, you'd save <span class="num">${money(saved + P.toCome)}</span>.`
         : P.limit < 0.5 ? `To hit the target, spend <span class="num">${money(gap)}</span> less than your daily budget allows over the rest of the month.`
-        : extra > 0.5 ? `To hit the target, keep to your daily limit and spend <span class="num">${money(extra)}</span> less than it allows over the rest of the month.`
-        : 'Keeping to your daily limit makes it up.';
+        : extra > 0.5 ? `To hit the target, stay within your daily allowance and spend <span class="num">${money(extra)}</span> less than it allows over the rest of the month.`
+        : 'Staying within your daily allowance makes it up.';
     } else {
       const room = b.reduce((n, c) => n + Math.max(0, c.budget - (sp[c.id] || 0)), 0), over = b.filter(c => (sp[c.id] || 0) > c.budget + 0.004);
       why = listNames([over.length ? `${esc(listNames(over.map(c => c.name)))} going over budget` : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
