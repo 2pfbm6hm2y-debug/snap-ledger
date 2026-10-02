@@ -38,7 +38,9 @@ To track what you have and owe, tap **Add balance** on a card or account and cop
 figure from your bank app. From then on, spending, income and transfers move the
 balance. Update it now and then, and a correction entry makes up any difference so it
 matches your bank again. Card payments and wallet top-ups are transfers: they move
-money between your own accounts and never count as spending.
+money between your own accounts and never count as spending. Under Net, the Cards tab projects where
+it will be at the end of the month: income still to come, less spending still to come if
+every budget is used up.
 
 ## Paid for work or friends
 

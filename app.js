@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.16.4';
+const APP_VERSION = '1.17.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1079,6 +1079,16 @@ function vBudget() {
   </section>`;
 }
 
+// Net at the end of this month: today's net, plus income still to come, less spending still to come.
+// "Still to come" is this month's projection (every budget used up, income as expected) less what has
+// already moved a balance. Same as today's net + projected savings + spending so far - income so far.
+function monthEndNet(net) {
+  const today = todayISO(), ym = ymOf(today), p = projectMonth(ym);
+  let inc = 0, sp = 0;
+  monthTx(ym).forEach(t => { if (moneyDay(t) > today) return; if (t.type === 'inc') inc += t.amt; else if (t.type === 'exp') sp += spendAmt(t); });
+  const incLeft = Math.max(0, p.inc - inc), spLeft = Math.max(0, p.sp - sp);
+  return { ym, end: round2(net + incLeft - spLeft), incLeft, spLeft };
+}
 function vCards() {
   const list = accts(), bals = balances();
   let h = '';
@@ -1096,6 +1106,11 @@ function vCards() {
         ${toYou > 0.004 ? `<div><span>Owed to you</span><span class="num">${money(toYou)}</span></div>` : ''}
         <div><span>Owed on cards</span><span class="num">${money(owed)}</span></div>
         <div class="net"><span>Net</span><span class="num${net < 0 ? ' t-bad' : ''}">${money(net)}</span></div>
+        ${(() => {
+          const E = monthEndNet(net), untracked = accts().some(a => !bals[a.id] && monthTx(E.ym).some(t => t.acc === a.id || t.to === a.id));
+          return `<div class="proj"><span>End of ${esc(monthName(E.ym))}, projected</span><span class="num${E.end < 0 ? ' t-bad' : ''}">${money(E.end, 0)}</span></div>
+            <p class="proj-note">Net now, plus <span class="num">${money(E.incLeft, 0)}</span> of income still to come, less <span class="num">${money(E.spLeft, 0)}</span> of spending still to come if every budget is used up.${untracked ? ' Cards and accounts without a balance aren\'t in Net, so this is a rough guide until they all have one.' : ''}</p>`;
+        })()}
       </div>
       <p class="muted" style="font-size:12px;margin:8px 0 0">From the figures you entered from your bank apps, plus everything since. Update a card or account below to check it still matches.</p></section>`;
   }
