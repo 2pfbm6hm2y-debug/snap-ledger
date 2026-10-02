@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.1';
+const APP_VERSION = '1.17.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -959,25 +959,30 @@ function monthFlow(ym) {
   return { ym, inc: round2(inc), sp: round2(sp), saved: round2(inc - sp) };
 }
 // This month (or a future one) as it's likely to end. Income is what you expect or what's come in,
-// whichever is more. This month, daily categories count what's been spent before today, today's
-// limit (or today's spending, if more), and the daily limit for every day left, as if you keep to it.
-// Today counts at its limit until it's over, so spending less shows up from the next day. A lowered
-// limit that makes up for an overrun lands back on the target. Monthly bills count at their budget, or what's been paid if more. Future months count
-// every budget in full. Spending in categories without a budget or outside it counts as it is.
+// whichever is more. This month, each daily category counts what it spent before today, today at its
+// daily budget (or what it spent today, if more), and its daily budget for every day left: its monthly
+// budget split over the month's days, the amounts that add up to your daily budget. A day that ends
+// under that raises the projection from the next day, and one that ends over lowers it. Monthly bills
+// count at their budget, or what's been paid if more. Future months count every budget in full.
+// Spending in categories without a budget or outside it counts as it is.
 function projectMonth(ym) {
   const f = monthFlow(ym), sp = spendByCat(ym), b = budgetCats(), exp = st().expIncome > 0 ? st().expIncome : 0;
   const today = todayISO(), daily = b.filter(c => !isMonthly(c));
   let spend = 0, paced = null;
   if (ym === ymOf(today) && daily.length) {
-    const I = dayLimit(today), dIds = new Set(daily.map(c => c.id)), n = daysIn(ym) - (+today.slice(8, 10)) + 1;
-    let before = 0, actual = 0;
-    monthTx(ym).forEach(t => { if (t.type === 'exp' && dIds.has(t.cat)) { const a = spendAmt(t); actual += a; if (t.d < today) before += a; } });
-    const todayAmt = Math.max(I.spent, I.limit);
-    const next = n > 1 ? Math.min(I.daily, Math.max(0, I.dB - before - todayAmt - I.mOver) / (n - 1)) : 0;
-    const dailyProj = Math.max(actual, before + todayAmt + next * (n - 1));
-    spend += dailyProj;
+    const days = daysIn(ym), n = days - (+today.slice(8, 10)) + 1, above = [];
+    let proj = 0, soFar = 0;
+    daily.forEach(c => {
+      const d0 = c.budget / days;
+      let before = 0, on = 0, all = 0;
+      monthTx(ym).forEach(t => { if (t.type === 'exp' && t.cat === c.id) { const a = spendAmt(t); all += a; if (t.d < today) before += a; else if (t.d === today) on += a; } });
+      const pc = Math.max(all, before + Math.max(on, d0) + d0 * (n - 1));
+      proj += pc; soFar += before + on;
+      if (pc > c.budget + 0.5) above.push(c);
+    });
+    spend += proj;
     b.forEach(c => { if (isMonthly(c)) spend += Math.max(c.budget, sp[c.id] || 0); });
-    paced = { rest: next * (n - 1), over: dailyProj - (I.dB - I.mOver), overBills: I.overBills };
+    paced = { daily0: daily.reduce((n, c) => n + c.budget, 0) / days, above, overBills: b.filter(c => isMonthly(c) && (sp[c.id] || 0) > c.budget + 0.004), toCome: proj - soFar, limit: dayLimit(today).limit };
   } else b.forEach(c => { spend += Math.max(c.budget, sp[c.id] || 0); });
   Object.keys(sp).forEach(id => { if (!b.some(c => c.id === id)) spend += sp[id]; });
   const inc = Math.max(f.inc, exp);
@@ -1003,18 +1008,20 @@ function savingsSection(ym) {
   const cur = mine(ym), saved = cur.saved, hit = target && saved >= target - 0.004;
   let h = head + `<div class="sv-top"><div class="hero-big${saved < 0 ? ' t-bad' : ''}"><span class="num">${money(Math.abs(saved))}</span><small>${ahead ? (saved >= 0 ? 'projected' : 'projected shortfall') : (saved >= 0 ? 'saved' : 'more spent than earned')}</small></div>${target && saved > 0 ? `<span class="sv-pct num${hit ? ' t-good' : ''}">${Math.round(saved / target * 100)}%</span>` : ''}</div>`;
   if (target) h += `<div class="track lg" style="margin-top:12px"><div class="fill ${hit ? 'good' : saved < 0 ? 'bad' : ''}" style="width:${Math.max(0, Math.min(100, saved / target * 100)).toFixed(1)}%"></div></div>`;
-  h += `<p class="sv-note">${ahead ? `${cur.incExpected ? 'Expected income' : 'Income'} <span class="num">${money(cur.inc)}</span>, less <span class="num">${money(cur.sp)}</span> ${cur.paced ? 'if you keep to your daily limit' : budgetCats().length ? 'if every budget is used up' : 'spent so far'}.` : `Income <span class="num">${money(cur.inc)}</span>, less spending of <span class="num">${money(cur.sp)}</span>.`}${target && hit ? (ahead ? ' That reaches your target.' : ' Target hit.') : ''}</p>`;
+  h += `<p class="sv-note">${ahead ? `${cur.incExpected ? 'Expected income' : 'Income'} <span class="num">${money(cur.inc)}</span>, less <span class="num">${money(cur.sp)}</span> ${cur.paced ? `if you spend your <span class="num">${money(cur.paced.daily0)}</span> daily budget each day from today` : budgetCats().length ? 'if every budget is used up' : 'spent so far'}.` : `Income <span class="num">${money(cur.inc)}</span>, less spending of <span class="num">${money(cur.sp)}</span>.`}${target && hit ? (ahead ? ' That reaches your target.' : ' Target hit.') : ''}</p>`;
   if (target && ahead && !hit) {
     // Why the projection falls short of the target, and what would make it up.
     const sp = spendByCat(ym), b = budgetCats(), gap = target - saved, P = cur.paced;
     const extra = Object.keys(sp).reduce((n, id) => n + (b.some(c => c.id === id) ? 0 : Math.max(0, sp[id])), 0);
     let why, fix;
     if (P) {
-      // This month: the projection already keeps to the daily limit, so the gap is daily spending past
-      // what the month allows (after any monthly bills over budget) or spending outside the budgets.
-      why = listNames([P.over > 0.5 && P.overBills.length ? `${esc(listNames(P.overBills.map(c => c.name)))} going over budget` : '', P.over > 0.5 ? 'daily spending going past its limit' : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
-      fix = P.rest < gap - 0.004 ? `Even with no more daily spending this month, you'd save <span class="num">${money(saved + P.rest)}</span>.`
-        : `To hit the target, spend <span class="num">${money(gap)}</span> less than your daily limit allows over the rest of the month.`;
+      // This month: daily categories running above plan and monthly bills over budget are what today's
+      // lowered limit makes up. Spending outside the budgets has to come out of the daily limit too.
+      why = listNames([P.above.length ? `${P.above.length > 2 ? 'daily spending' : esc(listNames(P.above.map(c => c.name)))} running above plan` : '', P.overBills.length ? `${esc(listNames(P.overBills.map(c => c.name)))} going over budget` : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
+      fix = P.toCome < gap - 0.004 ? `Even with no more daily spending this month, you'd save <span class="num">${money(saved + P.toCome)}</span>.`
+        : P.limit < 0.5 ? `To hit the target, spend <span class="num">${money(gap)}</span> less than your daily budget allows over the rest of the month.`
+        : extra > 0.5 ? `To hit the target, keep to your daily limit and spend <span class="num">${money(extra)}</span> less than it allows over the rest of the month.`
+        : 'Keeping to your daily limit makes it up.';
     } else {
       const room = b.reduce((n, c) => n + Math.max(0, c.budget - (sp[c.id] || 0)), 0), over = b.filter(c => (sp[c.id] || 0) > c.budget + 0.004);
       why = listNames([over.length ? `${esc(listNames(over.map(c => c.name)))} going over budget` : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
@@ -1128,7 +1135,7 @@ function vCards() {
         ${(() => {
           const E = monthEndNet(net), untracked = accts().some(a => !bals[a.id] && monthTx(E.ym).some(t => t.acc === a.id || t.to === a.id));
           return `<div class="proj"><span>End of ${esc(monthName(E.ym))}, projected</span><span class="num${E.end < 0 ? ' t-bad' : ''}">${money(E.end, 0)}</span></div>
-            <p class="proj-note">Net now, plus <span class="num">${money(E.incLeft, 0)}</span> of income still to come, less <span class="num">${money(E.spLeft, 0)}</span> of spending still to come ${E.paced ? 'if you keep to your daily limit' : 'if every budget is used up'}.${untracked ? ' Cards and accounts without a balance aren\'t in Net, so this is a rough guide until they all have one.' : ''}</p>`;
+            <p class="proj-note">Net now, plus <span class="num">${money(E.incLeft, 0)}</span> of income still to come, less <span class="num">${money(E.spLeft, 0)}</span> of spending still to come ${E.paced ? 'if you spend your daily budget each day from today' : 'if every budget is used up'}.${untracked ? ' Cards and accounts without a balance aren\'t in Net, so this is a rough guide until they all have one.' : ''}</p>`;
         })()}
       </div>
       <p class="muted" style="font-size:12px;margin:8px 0 0">From the figures you entered from your bank apps, plus everything since. Update a card or account below to check it still matches.</p></section>`;
