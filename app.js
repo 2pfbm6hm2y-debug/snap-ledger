@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.3';
+const APP_VERSION = '1.17.4';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -820,7 +820,8 @@ function heroLinks(ym) {
     const proj = ym >= nowYm, saved = (proj ? projectMonth(ym) : monthFlow(ym)).saved, target = saveTarget();
     const verb = proj ? (saved >= 0 ? 'Projected to save' : 'Projected shortfall') : (saved >= 0 ? 'Saved' : 'Spent more than earned by');
     const cls = saved < 0 ? 't-bad' : target && saved >= target - 0.004 ? 't-good' : '';
-    save = `<button class="hero-link" data-act="goto-savings"><span>${verb} <b class="num ${cls}">${money(Math.abs(saved))}</b>${target && saved > 0 ? ` · ${Math.round(saved / target * 100)}% of target` : ''}</span>${CHEV}</button>`;
+    const d = ym === nowYm ? projDelta() : null;
+    save = `<button class="hero-link" data-act="goto-savings"><span>${verb} <b class="num ${cls}">${money(Math.abs(saved))}</b>${target && saved > 0 ? ` · ${Math.round(saved / target * 100)}% of target` : ''}${d !== null && Math.abs(d) >= 0.5 ? ` <span class="dl ${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'}${money(Math.abs(d))}</span>` : ''}</span>${CHEV}</button>`;
   }
   return `<div class="hero-links">${save}<button class="hero-link" data-act="stat-open" data-id="all"><span>Day by day and trend</span>${CHEV}</button></div>`;
 }
@@ -988,6 +989,32 @@ function projectMonth(ym) {
   const inc = Math.max(f.inc, exp);
   return { inc: round2(inc), incExpected: exp > f.inc, sp: round2(spend), saved: round2(inc - spend), actual: f, paced };
 }
+// Projected savings as they stood at the end of a given day this month: the same rule, counting only
+// entries dated up to that day. Today's figure less yesterday's is how much a day moved the projection.
+function projectAsOf(iso) {
+  const ym = ymOf(iso), b = budgetCats(), days = daysIn(ym), dd = +iso.slice(8, 10), exp = st().expIncome > 0 ? st().expIncome : 0;
+  let inc = 0, spend = 0;
+  const upto = {}, before = {}, on = {};
+  monthTx(ym).forEach(t => {
+    if (t.d > iso) return;
+    if (t.type === 'inc') inc += t.amt;
+    else if (t.type === 'exp') { const a = spendAmt(t); upto[t.cat] = (upto[t.cat] || 0) + a; (t.d < iso ? before : on)[t.cat] = ((t.d < iso ? before : on)[t.cat] || 0) + a; }
+  });
+  b.forEach(c => {
+    if (isMonthly(c)) spend += Math.max(c.budget, upto[c.id] || 0);
+    else { const d0 = c.budget / days; spend += (before[c.id] || 0) + Math.max(on[c.id] || 0, d0) + d0 * (days - dd); }
+  });
+  Object.keys(upto).forEach(id => { if (!b.some(c => c.id === id)) spend += upto[id]; });
+  return Math.max(inc, exp) - spend;
+}
+// How much this month's projection moved since yesterday, or null on the 1st or without daily categories.
+function projDelta() {
+  const today = todayISO(), dt = new Date(today + 'T00:00:00'); dt.setDate(dt.getDate() - 1);
+  const y = isoOf(dt);
+  if (ymOf(y) !== ymOf(today) || !budgetCats().some(c => !isMonthly(c))) return null;
+  return round2(projectAsOf(today) - projectAsOf(y));
+}
+const deltaTag = d => d === null ? '' : Math.abs(d) < 0.5 ? '<span class="dl">same as yesterday</span>' : `<span class="dl ${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${money(Math.abs(d))} since yesterday</span>`;
 // Savings count from the first month with income recorded (or this month, once expected income is set).
 function savingsSince() {
   const nowYm = ymOf(todayISO());
@@ -1007,6 +1034,7 @@ function savingsSection(ym) {
   const mine = m => m >= nowYm ? projectMonth(m) : monthFlow(m);
   const cur = mine(ym), saved = cur.saved, hit = target && saved >= target - 0.004;
   let h = head + `<div class="sv-top"><div class="hero-big${saved < 0 ? ' t-bad' : ''}"><span class="num">${money(Math.abs(saved))}</span><small>${ahead ? (saved >= 0 ? 'projected' : 'projected shortfall') : (saved >= 0 ? 'saved' : 'more spent than earned')}</small></div>${target && saved > 0 ? `<span class="sv-pct num${hit ? ' t-good' : ''}">${Math.round(saved / target * 100)}%</span>` : ''}</div>`;
+  if (ym === nowYm) h += `<p class="sv-delta">${deltaTag(projDelta())}</p>`;
   if (target) h += `<div class="track lg" style="margin-top:12px"><div class="fill ${hit ? 'good' : saved < 0 ? 'bad' : ''}" style="width:${Math.max(0, Math.min(100, saved / target * 100)).toFixed(1)}%"></div></div>`;
   h += `<p class="sv-note">${ahead ? `${cur.incExpected ? 'Expected income' : 'Income'} <span class="num">${money(cur.inc)}</span>, less <span class="num">${money(cur.sp)}</span> ${cur.paced ? `if you spend your <span class="num">${money(cur.paced.daily0)}</span> daily budget each day from today` : budgetCats().length ? 'if every budget is used up' : 'spent so far'}.` : `Income <span class="num">${money(cur.inc)}</span>, less spending of <span class="num">${money(cur.sp)}</span>.`}${target && hit ? (ahead ? ' That reaches your target.' : ' Target hit.') : ''}</p>`;
   if (target && ahead && !hit) {
