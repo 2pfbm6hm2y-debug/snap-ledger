@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.5';
+const APP_VERSION = '1.17.6';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -723,7 +723,7 @@ function cheerLine() {
   if (!k) return '';
   let head = '', sub = '';
   if (k.streak >= 2) { head = `${k.streak} days in a row`; sub = `Within your allowance each day. ${k.streak >= 7 ? "That's a great run!" : 'Keep it going!'}`; }
-  else if (k.streak === 1) { head = "Within yesterday's allowance"; sub = `${money(k.yesterday.spent)} of ${money(k.yesterday.limit)}. Nice!`; }
+  else if (k.streak === 1) { head = 'Good day yesterday'; sub = `You spent ${money(k.yesterday.spent)} of your ${money(k.yesterday.limit)} allowance.`; }
   else if (k.weekDays >= 4 && k.week >= Math.ceil(k.weekDays / 2)) { head = `${k.week} of the last ${k.weekDays} days`; sub = 'Within your allowance. Nice and steady.'; }
   if (!head) return '';
   return `<div class="cheer"><span class="cheer-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.4 5.5 6 .6-4.5 4 1.3 5.9L12 16.1l-5.2 3.1 1.3-5.9-4.5-4 6-.6z"/></svg></span><span class="cheer-tx"><b>${head}</b><span>${sub}</span></span></div>`;
