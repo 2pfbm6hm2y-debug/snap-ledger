@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.6';
+const APP_VERSION = '1.17.7';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1757,19 +1757,19 @@ function renderSheet() {
     const defDate = t ? t.d : (S.month === ymOf(todayISO()) ? todayISO() : S.month + '-01');
     el.innerHTML = `<div class="grab"></div><h2>${t ? (isX ? 'Edit transfer' : isB ? 'Edit payback' : 'Edit transaction') : isB ? 'Record a payback' : 'New transaction'}</h2>
       ${accts().length ? '' : '<div class="err">Add a card first in the Cards tab.</div>'}
+      <label class="field"><span>Amount</span><input class="in num amt" id="f-amt" inputmode="decimal" value="${t ? Math.abs(t.amt).toFixed(2) : ''}" placeholder="0.00"></label>
       <label class="field"><span>Merchant or note</span><input class="in" id="f-m" value="${esc(t ? t.m : '')}" maxlength="60" autocomplete="off" autocorrect="off" enterkeyhint="next"></label>
       ${t && t.raw ? `<p class="raw num" style="margin:-4px 0 12px">Statement: ${esc(t.raw)}</p>` : ''}
       ${t ? '' : `<div id="f-sugg"${isX || isB ? ' hidden' : ''}>${suggHtml(suggFor(''))}</div>`}
-      <div class="row2"><label class="field"><span>Type</span><select class="in" id="f-kind">${kindOptions(k, accts().length > 1)}</select></label>
-      <label class="field"><span>Amount</span><input class="in num" id="f-amt" inputmode="decimal" value="${t ? Math.abs(t.amt).toFixed(2) : ''}" placeholder="0.00"></label></div>
-      <div class="row2"><label class="field"><span>Date</span><input class="in" id="f-date" type="date" value="${esc(defDate)}"></label>
-      <label class="field"><span id="f-acc-l">${isX ? 'From' : isB ? 'Into' : 'Card'}</span><select class="in" id="f-acc">${accOptions(defAcc)}</select></label></div>
+      <div class="row2 fit"><label class="field"><span>Type</span><select class="in" id="f-kind">${kindOptions(k, accts().length > 1)}</select></label>
+      <label class="field" id="f-cat-w"${isX || isB ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptions(type, t && t.cat ? t.cat : (S.filterCat || firstCat(type)))}</select></label></div>
+      <div class="row2"><label class="field"><span id="f-acc-l">${isX ? 'From' : isB ? 'Into' : 'Card'}</span><select class="in" id="f-acc">${accOptions(defAcc)}</select></label>
+      <label class="field"><span>Date</span><input class="in" id="f-date" type="date" value="${esc(defDate)}"></label></div>
       <label class="field" id="f-by-w"${isB ? '' : ' hidden'}><span>Paid back by</span><select class="in" id="f-by">${owerOptions(t && t.by ? t.by : s.by || 'work')}</select></label>
       <div id="f-set-w"${isB ? '' : ' hidden'}><div class="field"><span>What it pays for</span></div><div id="f-set" class="set-list">${isB ? settleList(t && t.by ? t.by : s.by || 'work', t, s.claim) : ''}</div></div>
       <p class="muted" id="f-b-note" style="font-size:13px;margin:6px 0 12px"${isB ? '' : ' hidden'}>Tick what this pays for, or tick nothing to clear the oldest first. Paybacks aren't income.</p>
       <label class="field" id="f-to-w"${isX ? '' : ' hidden'}><span>To</span><select class="in" id="f-to">${accOptions(defTo)}</select></label>
       <p class="muted" id="f-x-note" style="font-size:13px;margin-top:-4px"${isX ? '' : ' hidden'}>A transfer moves money between your own accounts, like paying a card bill or topping up a wallet. It isn't spending.</p>
-      <label class="field" id="f-cat-w"${isX || isB ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptions(type, t && t.cat ? t.cat : (S.filterCat || firstCat(type)))}</select></label>
       <div id="f-ow-w"${k === 'exp' ? '' : ' hidden'}>
         <div class="row2"><label class="field"><span>Paid back by</span><select class="in" id="f-ow"><option value="">Nobody, it's mine</option>${owerOptions(t && t.owed ? t.owed.by : '')}</select></label>
         <label class="field" id="f-owa-w"${t && t.owed ? '' : ' hidden'}><span>They owe</span><input class="in num" id="f-owa" inputmode="decimal" placeholder="All of it" value="${t && t.owed ? t.owed.amt.toFixed(2) : ''}"></label></div>
@@ -2080,7 +2080,7 @@ document.addEventListener('click', e => {
     }
     case 'drill-acc': S.filterAcc = id; S.filterCat = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0); break;
     case 'stats-by': { S.statsBy = b.dataset.by; const y = window.scrollY; render(); window.scrollTo(0, y); break; }
-    case 'new-tx': openSheet({ kind: 'txn', id: null }); break;
+    case 'new-tx': { openSheet({ kind: 'txn', id: null }); const a = $('#f-amt'); if (a) a.focus(); break; }
     case 'new-income': openSheet({ kind: 'txn', id: null, kind0: 'inc' }); break;
     case 'new-payback': openSheet({ kind: 'txn', id: null, kind0: 'back', by: b.dataset.by }); break;
     case 'pay-claim': openSheet({ kind: 'txn', id: null, kind0: 'back', by: b.dataset.by, claim: id, amtAuto: true }); { const a = $('#f-amt'); if (a) a.value = (+b.dataset.left).toFixed(2); } break;
