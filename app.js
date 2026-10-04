@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.9';
+const APP_VERSION = '1.17.10';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1197,7 +1197,7 @@ function vCards() {
       <span class="stripe"></span>
       <div class="ct-top"><span class="ct-name">${esc(a.name)}</span><span class="ct-l4">${a.last4 ? '•••• ' + esc(a.last4) : ''}</span></div>
       ${b ? `<div class="ct-k">${liab ? 'Owed' : 'Balance'}</div>
-      <div class="ct-row"><div class="ct-amt${!liab && b.v < 0 ? ' t-bad' : ''}">${money(shown(a, b.v))}</div><button class="btn small ct-ok" data-act="bal-ok" data-id="${esc(a.id)}" aria-label="Matches your bank app. Mark it as checked today.">${ICON.ok}Matches bank</button></div>
+      <div class="ct-row"><div class="ct-amt${!liab && b.v < 0 ? ' t-bad' : ''}">${money(shown(a, b.v))}</div><button class="btn small ct-ok" data-act="bal-ok" data-id="${esc(a.id)}" aria-label="Confirm this matches your bank app and mark it as checked today">Confirm balance</button></div>
       <div class="ct-meta">Last checked with your bank ${esc(checkedOn(b.cp.d))}</div>`
       : `<p class="ct-meta ct-none">No balance yet. Add one to track what you ${liab ? 'owe on this card' : 'have in this account'}.</p>`}
       <div class="ct-acts"><button class="btn small" data-act="drill-acc" data-id="${esc(a.id)}">Transactions</button><button class="btn small" data-act="bal" data-id="${esc(a.id)}"${b ? ' aria-label="Update balance"' : ''}>${b ? 'Update' : 'Add balance'}</button><button class="btn small ct-edit" data-act="edit-card" data-id="${esc(a.id)}">Edit</button></div>
@@ -1820,7 +1820,7 @@ function renderSheet() {
       <p class="muted" style="margin-top:-8px">${esc(accName(a.id))}</p>
       ${b ? `<div class="kv"><span>Snap Ledger expects</span><span class="num">${money(shown(a, b.v))}</span></div>
       <div class="kv"><span>Last checked</span><span>${esc(checkedOn(b.cp.d))}</span></div>
-      <button class="btn wide bal-ok" data-act="bal-ok" data-id="${esc(a.id)}">${ICON.ok}My bank shows the same</button>` : ''}
+      <button class="btn wide bal-ok" data-act="bal-ok" data-id="${esc(a.id)}">Confirm, my bank shows the same</button>` : ''}
       <label class="field" style="margin-top:12px"><span>${b ? 'Or enter what your bank app shows' : `${liab ? 'Amount owed' : 'Balance'} in your bank app now`}</span><input class="in num" id="b-val" inputmode="decimal" placeholder="0.00" autocomplete="off"></label>
       <p class="bal-diff" id="b-diff">${balDiffNote(a.id, NaN)}</p>
       <p class="muted" style="font-size:13px">${b ? "If it doesn't match, a correction entry makes up the difference. " : `From now on, everything on this ${liab ? 'card' : 'account'} moves its balance. `}Entries dated before today that you add later are treated as already in this figure.${liab ? ' If the card is in credit, enter a minus amount.' : ''}</p>
@@ -2127,7 +2127,7 @@ document.addEventListener('click', e => {
       else { b.dataset.armed = '1'; b.textContent = 'Tap again to delete'; }
       break;
     }
-    // With a balance already there, leave the keyboard down so "My bank shows the same" is one tap.
+    // With a balance already there, leave the keyboard down so confirming it is one tap.
     case 'bal': openSheet({ kind: 'bal', id }); if (!balances()[id]) setTimeout(() => { const i = $('#b-val'); if (i) i.focus(); }, 50); break;
     case 'bal-save': saveBalance(); break;
     case 'bal-ok': confirmBalance(id); break;
