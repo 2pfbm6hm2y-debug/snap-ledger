@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.7';
+const APP_VERSION = '1.17.8';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1757,10 +1757,10 @@ function renderSheet() {
     const defDate = t ? t.d : (S.month === ymOf(todayISO()) ? todayISO() : S.month + '-01');
     el.innerHTML = `<div class="grab"></div><h2>${t ? (isX ? 'Edit transfer' : isB ? 'Edit payback' : 'Edit transaction') : isB ? 'Record a payback' : 'New transaction'}</h2>
       ${accts().length ? '' : '<div class="err">Add a card first in the Cards tab.</div>'}
-      <label class="field"><span>Amount</span><input class="in num amt" id="f-amt" inputmode="decimal" value="${t ? Math.abs(t.amt).toFixed(2) : ''}" placeholder="0.00"></label>
       <label class="field"><span>Merchant or note</span><input class="in" id="f-m" value="${esc(t ? t.m : '')}" maxlength="60" autocomplete="off" autocorrect="off" enterkeyhint="next"></label>
       ${t && t.raw ? `<p class="raw num" style="margin:-4px 0 12px">Statement: ${esc(t.raw)}</p>` : ''}
       ${t ? '' : `<div id="f-sugg"${isX || isB ? ' hidden' : ''}>${suggHtml(suggFor(''))}</div>`}
+      <label class="field"><span>Amount</span><input class="in num amt" id="f-amt" inputmode="decimal" value="${t ? Math.abs(t.amt).toFixed(2) : ''}" placeholder="0.00"></label>
       <div class="row2 fit"><label class="field"><span>Type</span><select class="in" id="f-kind">${kindOptions(k, accts().length > 1)}</select></label>
       <label class="field" id="f-cat-w"${isX || isB ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptions(type, t && t.cat ? t.cat : (S.filterCat || firstCat(type)))}</select></label></div>
       <div class="row2"><label class="field"><span id="f-acc-l">${isX ? 'From' : isB ? 'Into' : 'Card'}</span><select class="in" id="f-acc">${accOptions(defAcc)}</select></label>
@@ -2080,7 +2080,7 @@ document.addEventListener('click', e => {
     }
     case 'drill-acc': S.filterAcc = id; S.filterCat = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0); break;
     case 'stats-by': { S.statsBy = b.dataset.by; const y = window.scrollY; render(); window.scrollTo(0, y); break; }
-    case 'new-tx': { openSheet({ kind: 'txn', id: null }); const a = $('#f-amt'); if (a) a.focus(); break; }
+    case 'new-tx': { openSheet({ kind: 'txn', id: null }); const m = $('#f-m'); if (m) m.focus(); break; }
     case 'new-income': openSheet({ kind: 'txn', id: null, kind0: 'inc' }); break;
     case 'new-payback': openSheet({ kind: 'txn', id: null, kind0: 'back', by: b.dataset.by }); break;
     case 'pay-claim': openSheet({ kind: 'txn', id: null, kind0: 'back', by: b.dataset.by, claim: id, amtAuto: true }); { const a = $('#f-amt'); if (a) a.value = (+b.dataset.left).toFixed(2); } break;
