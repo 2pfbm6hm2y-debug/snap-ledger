@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.10';
+const APP_VERSION = '1.17.11';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -35,6 +35,7 @@ const ICON = {
   wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5V7a2 2 0 0 1 2-2h11v3.5"/><rect x="4" y="8.5" width="16" height="10.5" rx="2.5"/><path d="M15.5 13.75h2"/></svg>',
   up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
   down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.6 9.4a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M13.6 8.4l3 3"/></svg>',
   over: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>'
 };
 
@@ -1187,20 +1188,22 @@ function vCards() {
             <p class="proj-note">Net now, plus <span class="num">${money(E.incLeft, 0)}</span> of income still to come, less <span class="num">${money(E.spLeft, 0)}</span> of spending still to come ${E.paced ? 'if you spend your daily budget each day from today' : 'if every budget is used up'}.${untracked ? ' Cards and accounts without a balance aren\'t in Net, so this is a rough guide until they all have one.' : ''}</p>`;
         })()}
       </div>
-      <p class="muted" style="font-size:12px;margin:8px 0 0">From the figures you entered from your bank apps, plus everything since. Update a card or account below to check it still matches.</p></section>`;
+      <p class="muted" style="font-size:12px;margin:8px 0 0">From the figures you entered from your bank apps, plus everything since. When you check your bank app, confirm or update each card below.</p></section>`;
   }
   h += owedSection(ow);
   h += list.map(a => {
     // Spending lives in Stats. Here each card shows what's in it, or what you owe on it.
     const b = bals[a.id], liab = isLiab(a);
+    const today = b && b.cp.d === todayISO(), nm = esc(a.name);
     return `<div class="card-tile ${esc(a.kind || 'credit')}">
       <span class="stripe"></span>
-      <div class="ct-top"><span class="ct-name">${esc(a.name)}</span><span class="ct-l4">${a.last4 ? '•••• ' + esc(a.last4) : ''}</span></div>
-      ${b ? `<div class="ct-k">${liab ? 'Owed' : 'Balance'}</div>
-      <div class="ct-row"><div class="ct-amt${!liab && b.v < 0 ? ' t-bad' : ''}">${money(shown(a, b.v))}</div><button class="btn small ct-ok" data-act="bal-ok" data-id="${esc(a.id)}" aria-label="Confirm this matches your bank app and mark it as checked today">Confirm balance</button></div>
-      <div class="ct-meta">Last checked with your bank ${esc(checkedOn(b.cp.d))}</div>`
-      : `<p class="ct-meta ct-none">No balance yet. Add one to track what you ${liab ? 'owe on this card' : 'have in this account'}.</p>`}
-      <div class="ct-acts"><button class="btn small" data-act="drill-acc" data-id="${esc(a.id)}">Transactions</button><button class="btn small" data-act="bal" data-id="${esc(a.id)}"${b ? ' aria-label="Update balance"' : ''}>${b ? 'Update' : 'Add balance'}</button><button class="btn small ct-edit" data-act="edit-card" data-id="${esc(a.id)}">Edit</button></div>
+      <div class="ct-top"><span class="ct-name">${nm}</span><span class="ct-l4">${a.last4 ? '•••• ' + esc(a.last4) : ''}</span><button class="icon-btn ct-pen" data-act="edit-card" data-id="${esc(a.id)}" aria-label="Edit ${nm}">${ICON.edit}</button></div>
+      ${b ? `<div class="ct-k">${liab ? 'Owed' : 'Balance'}</div><div class="ct-amt${!liab && b.v < 0 ? ' t-bad' : ''}">${money(shown(a, b.v))}</div>
+      <div class="ct-meta${today ? ' ct-done' : ''}">${today ? `${ICON.ok}Checked with your bank today` : `Last checked with your bank ${esc(fmtDate(b.cp.d))}`}</div>
+      <div class="ct-acts"><button class="btn small ct-ok" data-act="bal-ok" data-id="${esc(a.id)}" aria-label="Confirm balance: your bank app shows the same, so mark it as checked today">Confirm balance</button><button class="btn small" data-act="bal" data-id="${esc(a.id)}">Update balance</button></div>`
+      : `<p class="ct-meta ct-none">No balance yet. Add one to track what you ${liab ? 'owe on this card' : 'have in this account'}.</p>
+      <div class="ct-acts"><button class="btn small ct-ok" data-act="bal" data-id="${esc(a.id)}">Add balance</button></div>`}
+      <button class="ct-tx" data-act="drill-acc" data-id="${esc(a.id)}"><span>Transactions</span>${ICON.next}</button>
     </div>`;
   }).join('');
   h += `<button class="btn wide primary" data-act="new-card">Add a card</button>`;

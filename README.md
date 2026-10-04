@@ -37,8 +37,10 @@ your cards in one go, and the app works out which card each screenshot belongs t
 To track what you have and owe, tap **Add balance** on a card or account and copy the
 figure from your bank app. From then on, spending, income and transfers move the
 balance. Check it now and then. If your bank app shows the same figure, tap **Confirm balance**
-and the card is marked as checked today, with no typing. If it's different, tap **Update**
-and enter the figure, and a correction entry makes up the difference so it matches your bank again. Card payments and wallet top-ups are transfers: they move
+and the card is marked as checked today, with no typing. If it's different, tap **Update balance**
+and enter the figure, and a correction entry makes up the difference so it matches your bank again.
+The pencil in a card's corner edits it, and **Transactions** at the bottom opens its entries.
+Card payments and wallet top-ups are transfers: they move
 money between your own accounts and never count as spending. Under Net, the Cards tab projects where
 it will be at the end of the month: income still to come, less spending still to come if
 every budget is used up.
