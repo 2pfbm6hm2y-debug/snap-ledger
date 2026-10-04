@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.8';
+const APP_VERSION = '1.17.9';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -439,18 +439,40 @@ function balDiffNote(id, x) {
   if (Math.abs(diff) < 0.005) return '<span class="t-good">Matches. Saving records the check.</span>';
   return `${isLiab(a) ? 'You owe' : 'Your bank shows'} <b class="num">${money(Math.abs(diff))}</b> ${diff > 0 ? 'more' : 'less'} than expected. Saving adds a correction for the difference.`;
 }
+const checkedOn = d => d === todayISO() ? 'today' : fmtDate(d);
+// Records a figure from the bank app as the account's new starting point. Only the latest entry
+// counts, so a matching check made again on the same day replaces the earlier one (no repeats).
+function recordBalance(a, bal) {
+  const b = balances()[a.id], amt = b ? round2(bal - b.v) : bal, match = !!b && Math.abs(amt) < 0.005;
+  const d = todayISO(), ym = ymOf(d);
+  if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
+  const old = match && b.cp.d === d && !b.cp.first && Math.abs(b.cp.amt) < 0.005 ? b.cp : null;
+  if (old) mo()[ym].txns = monthTx(ym).filter(t => t.id !== old.id);
+  const rec = { id: newId(), d, amt: match ? 0 : amt, type: 'adj', acc: a.id, cat: '', m: !b ? 'Starting balance' : match ? 'Balance check' : 'Balance correction', raw: '', src: 'balance', t: Date.now(), bal };
+  if (!b) rec.first = true;
+  mo()[ym].txns.push(rec); saveMonth(ym);
+  return { rec, old, b, match, ym };
+}
 function saveBalance() {
   const a = S.sheet && accById(S.sheet.id); if (!a) return;
   const x = parseAmt($('#b-val').value);
   if (!isFinite(x)) return flagField('b-val', 'Enter the figure from your bank app.');
-  const b = balances()[a.id], bal = round2(isLiab(a) ? -x : x), amt = b ? round2(bal - b.v) : bal;
-  const d = todayISO(), ym = ymOf(d);
-  if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
-  const rec = { id: newId(), d, amt, type: 'adj', acc: a.id, cat: '', m: !b ? 'Starting balance' : Math.abs(amt) < 0.005 ? 'Balance check' : 'Balance correction', raw: '', src: 'balance', t: Date.now(), bal };
-  if (!b) rec.first = true;
-  mo()[ym].txns.push(rec); saveMonth(ym);
+  const r = recordBalance(a, round2(isLiab(a) ? -x : x));
   closeSheet(); render();
-  toast(!b ? 'Balance set.' : Math.abs(amt) < 0.005 ? 'Balance matches.' : 'Correction added.');
+  toast(!r.b ? 'Balance set.' : r.match ? 'Balance matches.' : 'Correction added.');
+}
+// One tap when the bank app shows what Snap Ledger expects: records a check at that figure, with an undo.
+function confirmBalance(id) {
+  const a = accById(id), b = a && balances()[id]; if (!b) return;
+  const r = recordBalance(a, b.v);
+  if (S.sheet) closeSheet();
+  const keep = () => { const y = window.scrollY; render(); window.scrollTo(0, y); };
+  keep();
+  toast('Marked as checked today.', { label: 'Undo', fn: () => {
+    mo()[r.ym].txns = monthTx(r.ym).filter(t => t.id !== r.rec.id);
+    if (r.old) mo()[r.ym].txns.push(r.old);
+    saveMonth(r.ym); keep(); toast('Undone.');
+  } });
 }
 // Transfers: which account usually pays a card or tops up a wallet, and where an outgoing payment went.
 function suggestFrom(to) {
@@ -1174,8 +1196,9 @@ function vCards() {
     return `<div class="card-tile ${esc(a.kind || 'credit')}">
       <span class="stripe"></span>
       <div class="ct-top"><span class="ct-name">${esc(a.name)}</span><span class="ct-l4">${a.last4 ? '•••• ' + esc(a.last4) : ''}</span></div>
-      ${b ? `<div class="ct-k">${liab ? 'Owed' : 'Balance'}</div><div class="ct-amt${!liab && b.v < 0 ? ' t-bad' : ''}">${money(shown(a, b.v))}</div>
-      <div class="ct-meta">Last checked with your bank ${esc(fmtDate(b.cp.d))}</div>`
+      ${b ? `<div class="ct-k">${liab ? 'Owed' : 'Balance'}</div>
+      <div class="ct-row"><div class="ct-amt${!liab && b.v < 0 ? ' t-bad' : ''}">${money(shown(a, b.v))}</div><button class="btn small ct-ok" data-act="bal-ok" data-id="${esc(a.id)}" aria-label="Matches your bank app. Mark it as checked today.">${ICON.ok}Matches bank</button></div>
+      <div class="ct-meta">Last checked with your bank ${esc(checkedOn(b.cp.d))}</div>`
       : `<p class="ct-meta ct-none">No balance yet. Add one to track what you ${liab ? 'owe on this card' : 'have in this account'}.</p>`}
       <div class="ct-acts"><button class="btn small" data-act="drill-acc" data-id="${esc(a.id)}">Transactions</button><button class="btn small" data-act="bal" data-id="${esc(a.id)}"${b ? ' aria-label="Update balance"' : ''}>${b ? 'Update' : 'Add balance'}</button><button class="btn small ct-edit" data-act="edit-card" data-id="${esc(a.id)}">Edit</button></div>
     </div>`;
@@ -1796,8 +1819,9 @@ function renderSheet() {
     el.innerHTML = `<div class="grab"></div><h2>${b ? 'Update balance' : 'Add a balance'}</h2>
       <p class="muted" style="margin-top:-8px">${esc(accName(a.id))}</p>
       ${b ? `<div class="kv"><span>Snap Ledger expects</span><span class="num">${money(shown(a, b.v))}</span></div>
-      <div class="kv"><span>Last checked</span><span>${esc(fmtDate(b.cp.d))}</span></div>` : ''}
-      <label class="field" style="margin-top:12px"><span>${liab ? 'Amount owed' : 'Balance'} in your bank app now</span><input class="in num" id="b-val" inputmode="decimal" placeholder="0.00" autocomplete="off"></label>
+      <div class="kv"><span>Last checked</span><span>${esc(checkedOn(b.cp.d))}</span></div>
+      <button class="btn wide bal-ok" data-act="bal-ok" data-id="${esc(a.id)}">${ICON.ok}My bank shows the same</button>` : ''}
+      <label class="field" style="margin-top:12px"><span>${b ? 'Or enter what your bank app shows' : `${liab ? 'Amount owed' : 'Balance'} in your bank app now`}</span><input class="in num" id="b-val" inputmode="decimal" placeholder="0.00" autocomplete="off"></label>
       <p class="bal-diff" id="b-diff">${balDiffNote(a.id, NaN)}</p>
       <p class="muted" style="font-size:13px">${b ? "If it doesn't match, a correction entry makes up the difference. " : `From now on, everything on this ${liab ? 'card' : 'account'} moves its balance. `}Entries dated before today that you add later are treated as already in this figure.${liab ? ' If the card is in credit, enter a minus amount.' : ''}</p>
       <div class="sheet-actions">${b ? '<button class="btn danger" data-act="bal-stop">Stop tracking</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="bal-save">Save</button></div>`;
@@ -1935,13 +1959,15 @@ async function exportCsv() {
 }
 
 /* ---------- toast ---------- */
-let toastT;
-function toast(msg) {
-  const t = $('#toast'); t.textContent = msg; t.hidden = false;
+let toastT, toastFn = null;
+// act = { label, fn } adds a button (like Undo) and keeps the message up a little longer.
+function toast(msg, act) {
+  const t = $('#toast'); t.textContent = msg; t.hidden = false; toastFn = act ? act.fn : null;
+  if (act) { const u = document.createElement('button'); u.className = 'toast-act'; u.dataset.act = 'toast-act'; u.textContent = act.label; t.append(u); }
   // With a form open, the keyboard can cover the bottom of the screen, so show it at the top of what's visible.
   const up = !!S.sheet, vv = window.visualViewport;
   t.classList.toggle('up', up); t.style.top = up ? ((vv ? vv.offsetTop : 0) + 12) + 'px' : '';
-  clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 3200);
+  clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; toastFn = null; }, act ? 6000 : 3200);
 }
 // Points at the field a form needs before it can save.
 function flagField(id, msg) { const f = $('#' + id); if (f) { f.classList.add('unsure'); f.focus(); } toast(msg); }
@@ -2101,8 +2127,11 @@ document.addEventListener('click', e => {
       else { b.dataset.armed = '1'; b.textContent = 'Tap again to delete'; }
       break;
     }
-    case 'bal': openSheet({ kind: 'bal', id }); setTimeout(() => { const i = $('#b-val'); if (i) i.focus(); }, 50); break;
+    // With a balance already there, leave the keyboard down so "My bank shows the same" is one tap.
+    case 'bal': openSheet({ kind: 'bal', id }); if (!balances()[id]) setTimeout(() => { const i = $('#b-val'); if (i) i.focus(); }, 50); break;
     case 'bal-save': saveBalance(); break;
+    case 'bal-ok': confirmBalance(id); break;
+    case 'toast-act': { const f = toastFn; toastFn = null; clearTimeout(toastT); $('#toast').hidden = true; if (f) f(); break; }
     case 'bal-stop':
       if (b.dataset.armed) {
         const acc = S.sheet.id;
