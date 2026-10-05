@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.12';
+const APP_VERSION = '1.17.13';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -843,7 +843,7 @@ function heroLinks(ym) {
     const verb = proj ? (saved >= 0 ? 'Projected to save' : 'Projected shortfall') : (saved >= 0 ? 'Saved' : 'Spent more than earned by');
     const cls = saved < 0 ? 't-bad' : target && saved >= target - 0.004 ? 't-good' : '';
     const d = ym === nowYm ? projDelta() : null;
-    save = `<button class="hero-link" data-act="goto-savings"><span>${verb} <b class="num ${cls}">${money(Math.abs(saved))}</b>${target && saved > 0 ? ` · ${Math.round(saved / target * 100)}% of target` : ''}${d !== null && Math.abs(d) >= 0.5 ? ` <span class="dl ${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'}${money(Math.abs(d))}</span>` : ''}</span>${CHEV}</button>`;
+    save = `<button class="hero-link" data-act="goto-savings"><span>${verb} <b class="num ${cls}">${money(Math.abs(saved))}</b>${target && saved > 0 ? ` · ${Math.round(saved / target * 100)}% of target` : ''}${d !== null && Math.abs(d) >= 0.5 ? ` <span class="dl ${d > 0 ? 'up' : 'down'}" title="Yesterday ${d > 0 ? 'added' : 'took off'} ${money(Math.abs(d))}">${d > 0 ? '▲' : '▼'}${money(Math.abs(d))}</span>` : ''}</span>${CHEV}</button>`;
   }
   return `<div class="hero-links">${save}<button class="hero-link" data-act="stat-open" data-id="all"><span>Day by day and trend</span>${CHEV}</button></div>`;
 }
@@ -1014,34 +1014,32 @@ function projectMonth(ym) {
   const inc = Math.max(f.inc, exp);
   return { inc: round2(inc), incExpected: exp > f.inc, sp: round2(spend), saved: round2(inc - spend), actual: f, paced };
 }
-// Projected savings as they stood at the end of a given day this month: the same rule, counting only
-// entries dated up to that day. Today's figure less yesterday's is how much a day moved the projection.
-function projectAsOf(iso) {
-  const ym = ymOf(iso), b = budgetCats(), days = daysIn(ym), dd = +iso.slice(8, 10), exp = st().expIncome > 0 ? st().expIncome : 0;
+// Projected savings at the start of a given day this month, before anything dated that day: what was
+// spent and earned before it, with the daily budget for that day and every day after.
+function projectAtStart(iso) {
+  const ym = ymOf(iso), b = budgetCats(), days = daysIn(ym), left = days - (+iso.slice(8, 10)) + 1, exp = st().expIncome > 0 ? st().expIncome : 0;
   let inc = 0, spend = 0;
-  const upto = {}, before = {}, on = {};
+  const sp = {};
   monthTx(ym).forEach(t => {
-    if (t.d > iso) return;
+    if (t.d >= iso) return;
     if (t.type === 'inc') inc += t.amt;
-    else if (t.type === 'exp') { const a = spendAmt(t); upto[t.cat] = (upto[t.cat] || 0) + a; (t.d < iso ? before : on)[t.cat] = ((t.d < iso ? before : on)[t.cat] || 0) + a; }
+    else if (t.type === 'exp') sp[t.cat] = (sp[t.cat] || 0) + spendAmt(t);
   });
-  let dBefore = 0, dOn = 0, d0T = 0;
-  b.forEach(c => {
-    if (isMonthly(c)) spend += Math.max(c.budget, upto[c.id] || 0);
-    else { const d0 = c.budget / days; d0T += d0; dBefore += before[c.id] || 0; dOn += on[c.id] || 0; spend += d0 * (days - dd); }
-  });
-  spend += dBefore + Math.max(dOn, d0T);
-  Object.keys(upto).forEach(id => { if (!b.some(c => c.id === id)) spend += upto[id]; });
+  b.forEach(c => { spend += isMonthly(c) ? Math.max(c.budget, sp[c.id] || 0) : (sp[c.id] || 0) + c.budget / days * left; });
+  Object.keys(sp).forEach(id => { if (!b.some(c => c.id === id)) spend += sp[id]; });
   return Math.max(inc, exp) - spend;
 }
-// How much this month's projection moved since yesterday, or null on the 1st or without daily categories.
+// What yesterday did to this month's projection: the start of today against the start of yesterday,
+// so today's spending doesn't blur it. For daily categories that's the daily budget less what they
+// spent yesterday, plus any bill that went over budget or income that came in yesterday.
+// Null on the 1st or without daily categories.
 function projDelta() {
   const today = todayISO(), dt = new Date(today + 'T00:00:00'); dt.setDate(dt.getDate() - 1);
   const y = isoOf(dt);
   if (ymOf(y) !== ymOf(today) || !budgetCats().some(c => !isMonthly(c))) return null;
-  return round2(projectAsOf(today) - projectAsOf(y));
+  return round2(projectAtStart(today) - projectAtStart(y));
 }
-const deltaTag = d => d === null ? '' : Math.abs(d) < 0.5 ? '<span class="dl">same as yesterday</span>' : `<span class="dl ${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${money(Math.abs(d))} since yesterday</span>`;
+const deltaTag = d => d === null ? '' : Math.abs(d) < 0.5 ? '<span class="dl">Yesterday: no change</span>' : `<span class="dl ${d > 0 ? 'up' : 'down'}">Yesterday: ${d > 0 ? '▲' : '▼'} ${money(Math.abs(d))}</span>`;
 // Savings count from the first month with income recorded (or this month, once expected income is set).
 function savingsSince() {
   const nowYm = ymOf(todayISO());
