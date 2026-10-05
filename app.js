@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.11';
+const APP_VERSION = '1.17.12';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -982,27 +982,30 @@ function monthFlow(ym) {
   return { ym, inc: round2(inc), sp: round2(sp), saved: round2(inc - sp) };
 }
 // This month (or a future one) as it's likely to end. Income is what you expect or what's come in,
-// whichever is more. This month, each daily category counts what it spent before today, today at its
-// daily budget (or what it spent today, if more), and its daily budget for every day left: its monthly
-// budget split over the month's days, the amounts that add up to your daily budget. A day that ends
-// under that raises the projection from the next day, and one that ends over lowers it. Monthly bills
-// count at their budget, or what's been paid if more. Future months count every budget in full.
-// Spending in categories without a budget or outside it counts as it is.
+// whichever is more. This month, daily categories count together, the same way the daily allowance
+// does: what they spent before today, today at your daily budget (or what they spent today, if more),
+// and the daily budget for every day left (each category's monthly budget split over the month's
+// days, adding up to your daily budget). So going over lowers the projection as you spend, and a
+// day that ends under raises it from the next day. One category under and another over on the same
+// day cancel out. Monthly bills count at their budget, or what's been paid if more. Future months
+// count every budget in full. Spending in categories without a budget or outside it counts as it is.
 function projectMonth(ym) {
   const f = monthFlow(ym), sp = spendByCat(ym), b = budgetCats(), exp = st().expIncome > 0 ? st().expIncome : 0;
   const today = todayISO(), daily = b.filter(c => !isMonthly(c));
   let spend = 0, paced = null;
   if (ym === ymOf(today) && daily.length) {
     const days = daysIn(ym), n = days - (+today.slice(8, 10)) + 1, above = [];
-    let proj = 0, soFar = 0;
+    let beforeT = 0, onT = 0, d0T = 0, rest = 0;
     daily.forEach(c => {
       const d0 = c.budget / days;
-      let before = 0, on = 0, all = 0;
-      monthTx(ym).forEach(t => { if (t.type === 'exp' && t.cat === c.id) { const a = spendAmt(t); all += a; if (t.d < today) before += a; else if (t.d === today) on += a; } });
-      const pc = Math.max(all, before + Math.max(on, d0) + d0 * (n - 1));
-      proj += pc; soFar += before + on;
-      if (pc > c.budget + 0.5) above.push(c);
+      let before = 0, on = 0, later = 0;
+      monthTx(ym).forEach(t => { if (t.type === 'exp' && t.cat === c.id) { const a = spendAmt(t); if (t.d < today) before += a; else if (t.d === today) on += a; else later += a; } });
+      // Days after today: the daily budget, or what's already dated for them if more.
+      const r = Math.max(later, d0 * (n - 1));
+      beforeT += before; onT += on; d0T += d0; rest += r;
+      if (before + Math.max(on, d0) + r > c.budget + 0.5) above.push(c);
     });
+    const proj = beforeT + Math.max(onT, d0T) + rest, soFar = beforeT + onT;
     spend += proj;
     b.forEach(c => { if (isMonthly(c)) spend += Math.max(c.budget, sp[c.id] || 0); });
     paced = { daily0: daily.reduce((n, c) => n + c.budget, 0) / days, above, overBills: b.filter(c => isMonthly(c) && (sp[c.id] || 0) > c.budget + 0.004), toCome: proj - soFar, limit: dayLimit(today).limit };
@@ -1022,10 +1025,12 @@ function projectAsOf(iso) {
     if (t.type === 'inc') inc += t.amt;
     else if (t.type === 'exp') { const a = spendAmt(t); upto[t.cat] = (upto[t.cat] || 0) + a; (t.d < iso ? before : on)[t.cat] = ((t.d < iso ? before : on)[t.cat] || 0) + a; }
   });
+  let dBefore = 0, dOn = 0, d0T = 0;
   b.forEach(c => {
     if (isMonthly(c)) spend += Math.max(c.budget, upto[c.id] || 0);
-    else { const d0 = c.budget / days; spend += (before[c.id] || 0) + Math.max(on[c.id] || 0, d0) + d0 * (days - dd); }
+    else { const d0 = c.budget / days; d0T += d0; dBefore += before[c.id] || 0; dOn += on[c.id] || 0; spend += d0 * (days - dd); }
   });
+  spend += dBefore + Math.max(dOn, d0T);
   Object.keys(upto).forEach(id => { if (!b.some(c => c.id === id)) spend += upto[id]; });
   return Math.max(inc, exp) - spend;
 }
