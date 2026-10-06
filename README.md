@@ -81,6 +81,20 @@ In the **Budget** tab, mark categories that sit outside the monthly budget (Spec
 Spending is one by default). They still count toward balances, and Stats shows a
 running total for the year instead.
 
+## Payments from email
+
+Snap Ledger can bring in payments from your bank's alert emails, so you don't type them.
+It reads DBS PayLah! alerts for now. A small script (`email-inbox.gs`) runs in your own
+Google account: when the app asks with its secret key, the script looks for emails from
+your banks' addresses since the last check and sends their text to the phone. It only
+reads, keeps nothing, and ignores every other email.
+
+Set it up once in **Settings > Payments from email**: copy the setup script, paste it
+into a new project at script.google.com, deploy it as a web app (Execute as Me, Who has
+access Anyone), and paste the Web app URL back into the app. After that the app checks
+whenever you open it, and a banner shows new payments to review before they're added.
+The link and key stay on the phone and aren't part of backups.
+
 ## Your data
 
 Everything is stored on the phone. Use **Settings > Back up now** from time to time

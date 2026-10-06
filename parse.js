@@ -451,7 +451,66 @@
     return s.replace(/\b(SGD|S\$)\b/gi, ' ').replace(/(^|\s)\$(?=\s|$)/g, ' ').replace(WEEKDAY_RE, ' ').replace(/\s{2,}/g, ' ').trim();
   }
 
-  const api = { parse, categorise, cleanMerchant, normKey, findDates, findAmounts, detectAccount, accountSignals, MERCHANTS };
+  // ---- bank alert emails ----
+  // An email from the inbox script: { id, at (ISO time it arrived), from, subject, text }.
+  // Returns one payment: { src, label, kind ('exp', 'inc' or 'topup'), amount, date, time, raw, ref, accText },
+  // or null when it isn't a payment alert the app knows.
+  const ALERT_LABELS = ['Date\\s*&\\s*Time', 'Amount', 'From', 'To', 'Transaction\\s+Ref(?:erence)?(?:\\s+No\\.?)?'];
+  function alertField(text, label) {
+    const stop = ALERT_LABELS.map(l => '\\b' + l + '\\s*:').join('|');
+    const re = new RegExp('\\b' + label + '\\s*:\\s*([\\s\\S]*?)\\s*(?=' + stop + '|\\bTo view\\b|\\bDear\\b|\\n\\s*\\n|$)', 'i');
+    const m = re.exec(text);
+    return m ? m[1].replace(/\s+/g, ' ').trim() : '';
+  }
+  function alertDate(s, at) {
+    const m = /(\d{1,2})\s+([A-Za-z]{3,9})\.?(?:\s+(\d{4}))?(?:,?\s+(\d{1,2}):(\d{2}))?/.exec(s || '');
+    const mon = m && MON[m[2].toLowerCase().slice(0, 3)];
+    if (!mon) return null;
+    const got = at ? new Date(at) : new Date();
+    let y = m[3] ? +m[3] : got.getFullYear();
+    if (!m[3] && mon > got.getMonth() + 2) y -= 1; // a December alert read in January
+    return { date: iso(y, mon, +m[1]), time: m[4] ? pad(+m[4]) + ':' + m[5] : '' };
+  }
+  function alertAmount(s) {
+    const m = /(?:SGD|S\$)\s*([\d,]+(?:\.\d{1,2})?)/i.exec(s || '') || /([\d,]+\.\d{2})/.exec(s || '');
+    const v = m ? parseFloat(m[1].replace(/,/g, '')) : NaN;
+    return v > 0 ? Math.round(v * 100) / 100 : null;
+  }
+  // DBS PayLah!: "We refer to your PayLah! Scan & Pay Transfer dated 05 Oct ..." with Date & Time,
+  // Amount, From and To lines. Paying from the wallet is spending, money into it from someone else
+  // is income, and a top-up from your own bank account only moves money.
+  function readPaylah(text, item) {
+    const amount = alertAmount(alertField(text, 'Amount'));
+    const from = alertField(text, 'From'), to = alertField(text, 'To');
+    if (!amount || !(from || to)) return null;
+    const when = alertDate(alertField(text, 'Date\\s*&\\s*Time'), item.at) || alertDate((/dated\s+([^.\n]+)/i.exec(text) || [])[1], item.at);
+    const wallet = s => /pay\s*lah/i.test(s);
+    const ownBank = s => !wallet(s) && /\b(dbs|posb|multiplier|savings|current|account|a\/c)\b|\d{3}-?\d{5,}/i.test(s);
+    const side = s => s.replace(/\(\s*mobile\s+ending\s+\d+\s*\)/i, '').replace(/\s+/g, ' ').trim();
+    let kind, raw;
+    if (/\btop[\s-]?up\b/i.test(text) || (wallet(to) && ownBank(from)) || (wallet(from) && ownBank(to) && /send\s*back|withdraw/i.test(text))) { kind = 'topup'; raw = 'PayLah! top-up'; }
+    else if (wallet(from) && !wallet(to)) { kind = 'exp'; raw = side(to); }
+    else if (wallet(to) && !wallet(from)) { kind = 'inc'; raw = side(from); }
+    else return null;
+    if (!raw) return null;
+    const ref = (/Transaction\s+Ref(?:erence)?(?:\s+No\.?)?\s*:\s*([A-Z0-9-]+)/i.exec(text) || [])[1] || '';
+    return { kind, amount, date: when ? when.date : null, time: when ? when.time : '', raw: raw.slice(0, 120), ref, accText: 'DBS PAYLAH! WALLET' };
+  }
+  const ALERTS = [
+    { src: 'paylah', label: 'PayLah!', test: (t, it) => /pay\s*lah/i.test(t + ' ' + (it.from || '')) && /\bamount\s*:/i.test(t), read: readPaylah },
+  ];
+  function parseAlert(item) {
+    item = item || {};
+    const text = String(item.text || '').replace(/\r/g, '').replace(/[ ​]/g, ' ').replace(/[ \t]+/g, ' ');
+    for (const f of ALERTS) {
+      if (!f.test(text, item)) continue;
+      const r = f.read(text, item);
+      if (r) return Object.assign({ src: f.src, label: f.label }, r);
+    }
+    return null;
+  }
+
+  const api = { parse, parseAlert, categorise, cleanMerchant, normKey, findDates, findAmounts, detectAccount, accountSignals, MERCHANTS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.SnapParse = api;
 })(typeof window !== 'undefined' ? window : globalThis);

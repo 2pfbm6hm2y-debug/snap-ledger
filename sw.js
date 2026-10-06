@@ -1,9 +1,9 @@
 /* Snap Ledger service worker: makes the app open and scan offline. */
-const APP_CACHE = 'snapledger-app-1.17.15';
+const APP_CACHE = 'snapledger-app-1.18.0';
 const LIB_CACHE = 'snapledger-lib-1';
 const FONT_CACHE = 'snapledger-fonts-1';
 const APP_FILES = ['./', './index.html', './app.js', './parse.js', './ocr-worker.js', './manifest.webmanifest',
-  './icons/cards-180.png', './icons/cards-192.png', './icons/cards-512.png', './img/bunny.webp'];
+  './icons/cards-180.png', './icons/cards-192.png', './icons/cards-512.png', './img/bunny.webp', './email-inbox.gs'];
 const LIB_FILES = ['./lib/pdf.min.js', './lib/pdf.worker.min.js', './lib/tesseract-core-simd-lstm.wasm.js',
   './lib/tesseract-core-lstm.wasm.js', './lib/eng.traineddata'];
 

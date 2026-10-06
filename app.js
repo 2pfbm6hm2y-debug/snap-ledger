@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.15';
+const APP_VERSION = '1.18.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -137,7 +137,9 @@ const S = {
   statsBy: 'cat',
   budgetEdit: false,
   sheet: null,
-  imp: { files: [], accountId: lsGet('snapledger:lastCard') || '', text: '', status: 'idle', rows: [], skipped: [], notes: '', error: '', phase: '', stopped: false, source: '', showSource: false }
+  imp: { files: [], accountId: lsGet('snapledger:lastCard') || '', text: '', status: 'idle', rows: [], skipped: [], notes: '', error: '', phase: '', stopped: false, source: '', showSource: false, fromInbox: null },
+  inbox: null,            // payments from email: link, key and waiting payments, kept outside backups
+  inboxBusy: false
 };
 const data = () => S.demo ? S.demoData : S.real;
 const st = () => data().settings;
@@ -213,7 +215,7 @@ const Store = {
       S.mode = 'device';
       const all = await IDB.entries();
       let settings = null; const months = {};
-      all.forEach(([k, v]) => { if (k === 'settings') settings = v; else if (String(k).startsWith('month:')) months[String(k).slice(6)] = v; });
+      all.forEach(([k, v]) => { if (k === 'settings') settings = v; else if (k === 'inbox') S.inbox = v; else if (String(k).startsWith('month:')) months[String(k).slice(6)] = v; });
       if (settings) { const changed = migrate(settings); S.real = { settings, months }; S.demo = false; if (changed) saveSettings(); render(); }
       else enterDemo();
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(p => { S.persisted = p; }).catch(() => {});
@@ -227,7 +229,8 @@ const Store = {
   setMonth(ym, obj) { return S.mode === 'device' ? IDB.set('month:' + ym, obj) : Promise.resolve(); },
   replaceAll(settings, months) {
     if (S.mode !== 'device') return Promise.resolve();
-    return IDB.replaceAll([['settings', settings]].concat(Object.keys(months).map(ym => ['month:' + ym, months[ym]])));
+    // The email inbox link isn't part of a backup, so restoring one keeps it.
+    return IDB.replaceAll([['settings', settings]].concat(S.inbox ? [['inbox', clone(S.inbox)]] : [], Object.keys(months).map(ym => ['month:' + ym, months[ym]])));
   }
 };
 let queue = Promise.resolve();
@@ -556,7 +559,7 @@ const firstCat = type => (cats().find(c => c.type === type) || {}).id || '';
 /* ---------- render: chrome ---------- */
 function renderTop() {
   if (S.tab === 'import' || S.tab === 'budget' || S.tab === 'cards') {
-    $('#top').innerHTML = `<span></span><div class="top-title">${S.tab === 'import' ? 'Scan a statement' : S.tab === 'budget' ? 'Budgets' : 'Cards'}</div><button class="icon-btn" data-act="settings" aria-label="Settings">${ICON.gear}</button>`;
+    $('#top').innerHTML = `<span></span><div class="top-title">${S.tab === 'import' ? (S.imp.fromInbox ? 'From your bank emails' : 'Scan a statement') : S.tab === 'budget' ? 'Budgets' : 'Cards'}</div><button class="icon-btn" data-act="settings" aria-label="Settings">${ICON.gear}</button>`;
     return;
   }
   $('#top').innerHTML = `<span class="brand" aria-hidden="true"></span>
@@ -573,6 +576,11 @@ function renderBanner() {
   if (S.mode === 'device' && S.demo) {
     h += `<div class="banner wrap"><span><b>Example data.</b> Nothing here is yours or saved.</span>
       <span class="banner-acts"><label class="btn small" for="restore-file">Restore backup</label><button class="btn small primary" data-act="start">Start my ledger</button></span></div>`;
+  }
+  if (inboxOn()) {
+    const ib = S.inbox, n = ib.pending.length;
+    if (n && !S.imp.fromInbox) h += `<div class="banner"><span><b>${n} new from your bank emails.</b> Check ${n === 1 ? 'it' : 'them'} before ${n === 1 ? "it's" : "they're"} added.</span><button class="btn small primary" data-act="ib-review">Review</button></div>`;
+    else if (ib.error === 'key') h += `<div class="banner plain"><span>Payments from email stopped: the Google script doesn't have this phone's key.</span><button class="btn small" data-act="settings">Fix</button></div>`;
   }
   $('#banner').innerHTML = h;
 }
@@ -1278,7 +1286,7 @@ function vReview() {
   if ((pays.length || tops.length) && !Object.keys(balances()).length) notes.push('Add a balance in the Cards tab to record these as transfers.');
   if (dupN) notes.push(`${dupN} line${dupN === 1 ? ' looks' : 's look'} already recorded and ${dupN === 1 ? 'is' : 'are'} unticked.`);
   if (lowN) notes.push(`Categories shaded amber are ones the app didn't recognise.`);
-  notes.push('Compare amounts with your screenshot before adding.');
+  notes.push(I.fromInbox ? 'From your bank emails. Check each line before adding.' : 'Compare amounts with your screenshot before adding.');
   h += `<div class="note">${notes.join(' ')}</div>`;
   h += `<div class="rv-tools">
     <button class="btn small" data-act="rv-all">${I.rows.every(r => r.sel) ? 'Untick all' : 'Tick all'}</button>
@@ -1310,7 +1318,7 @@ function vGroups() {
 function vSource() {
   const I = S.imp;
   if (!I.source) return '';
-  return `<div class="src"><button class="btn ghost small" data-act="rv-src">${I.showSource ? 'Hide' : 'Show'} recognised text</button>${I.showSource ? `<pre class="num">${esc(I.source)}</pre>` : ''}</div>`;
+  return `<div class="src"><button class="btn ghost small" data-act="rv-src">${I.showSource ? 'Hide' : 'Show'} ${I.fromInbox ? 'the emails' : 'recognised text'}</button>${I.showSource ? `<pre class="num">${esc(I.source)}</pre>` : ''}</div>`;
 }
 function vRow(r, i) {
   const type = r.kind === 'inc' ? 'inc' : 'exp', isX = r.kind === 'xfer', isB = r.kind === 'back';
@@ -1655,7 +1663,7 @@ function approveRows() {
     r.invalid = r.sel && (!(r.amt > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(r.d) || !where); if (r.invalid) bad++;
   });
   if (bad) { render(); toast(`Fix ${bad} highlighted line${bad === 1 ? '' : 's'} first: each needs a date, an amount above zero, and a card and category (or both accounts for a transfer).`); return; }
-  const sel = I.rows.filter(r => r.sel);
+  const sel = I.rows.filter(r => r.sel), src = I.fromInbox ? 'email' : 'scan', fromInbox = I.fromInbox;
   const touched = {}, count = {};
   const rules = st().rules || (st().rules = {});
   sel.forEach(r => {
@@ -1663,16 +1671,16 @@ function approveRows() {
     if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
     touched[ym] = 1; count[ym] = (count[ym] || 0) + 1;
     if (r.kind === 'xfer') {
-      mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.amt), type: 'xfer', acc: r.from, to: r.to, cat: '', m: (r.m || '').trim().slice(0, 60) || 'Transfer', raw: r.raw, src: 'scan', t: Date.now() }));
+      mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.amt), type: 'xfer', acc: r.from, to: r.to, cat: '', m: (r.m || '').trim().slice(0, 60) || 'Transfer', raw: r.raw, src, t: Date.now() }));
       rememberPayFrom(r.from, r.to);
       return;
     }
     if (r.kind === 'back') {
-      mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.amt), type: 'back', acc: r.acc, by: r.by || 'work', cat: '', m: (r.m || '').trim().slice(0, 60), raw: r.raw, src: 'scan', t: Date.now() }));
+      mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.amt), type: 'back', acc: r.acc, by: r.by || 'work', cat: '', m: (r.m || '').trim().slice(0, 60), raw: r.raw, src, t: Date.now() }));
       return;
     }
     const m = (r.m || '').trim().slice(0, 60) || catName(r.cat);
-    mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.kind === 'ref' ? -r.amt : r.amt), type: r.kind === 'inc' ? 'inc' : 'exp', acc: r.acc, cat: r.cat, m, raw: r.raw, src: 'scan', t: Date.now() }));
+    mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.kind === 'ref' ? -r.amt : r.amt), type: r.kind === 'inc' ? 'inc' : 'exp', acc: r.acc, cat: r.cat, m, raw: r.raw, src, t: Date.now() }));
     const k = SnapParse.normKey(r.raw);
     if (k) { delete rules[k]; rules[k] = { c: r.cat, m }; }
   });
@@ -1693,6 +1701,7 @@ function approveRows() {
   saveSettings();
   const topYm = Object.entries(count).sort((a, b) => b[1] - a[1])[0][0];
   resetImport();
+  if (fromInbox) inboxDone(fromInbox);
   S.tab = 'ledger'; S.month = topYm; S.filterAcc = null; S.filterCat = null;
   render();
   window.scrollTo(0, 0);
@@ -1705,7 +1714,156 @@ function approveRows() {
 }
 function resetImport() {
   S.imp.files.forEach(f => { if (f.url) try { URL.revokeObjectURL(f.url); } catch (e) {} });
-  Object.assign(S.imp, { files: [], text: '', status: 'idle', rows: [], skipped: [], notes: '', error: '', phase: '', source: '', showSource: false });
+  Object.assign(S.imp, { files: [], text: '', status: 'idle', rows: [], skipped: [], notes: '', error: '', phase: '', source: '', showSource: false, fromInbox: null });
+}
+
+/* ---------- payments from email ----------
+   A small script in your own Google account (email-inbox.gs) reads your banks' alert emails and
+   passes their text to this phone when asked with this phone's secret key. The link and key are
+   stored on this phone in their own slot, never in a backup. Payments wait here until you add or
+   discard them on the review screen, and each email only ever comes in once. */
+const INBOX_GAP = 2 * 60 * 1000, INBOX_OVERLAP = 15 * 60, INBOX_FIRST = 3 * 86400;
+const inboxOn = () => !S.demo && !!(S.inbox && S.inbox.url && S.inbox.key);
+function saveInbox() { if (S.mode === 'device' && !S.demo) { const snap = S.inbox ? clone(S.inbox) : null; enqueue(() => IDB.set('inbox', snap)); } }
+function newKey() { const b = new Uint8Array(24); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); }
+let inboxScript = '';
+function loadInboxScript() {
+  return inboxScript ? Promise.resolve(inboxScript) : fetch('email-inbox.gs', { cache: 'no-cache' }).then(r => r.ok ? r.text() : Promise.reject(new Error('script'))).then(t => (inboxScript = t));
+}
+const filledScript = t => t.replace('__SNAP_LEDGER_KEY__', S.inbox.key);
+async function copyInboxScript() {
+  if (S.demo) { toast('Start your ledger first.'); return; }
+  if (!S.inbox) S.inbox = { url: '', key: '', since: 0, seen: {}, pending: [] };
+  if (!S.inbox.key) { S.inbox.key = newKey(); saveInbox(); }
+  try {
+    const cb = navigator.clipboard;
+    if (inboxScript && cb && cb.writeText) await cb.writeText(filledScript(inboxScript));
+    else if (cb && window.ClipboardItem) await cb.write([new ClipboardItem({ 'text/plain': loadInboxScript().then(t => new Blob([filledScript(t)], { type: 'text/plain' })) })]);
+    else throw new Error('clipboard');
+    if (S.sheet) { S.sheet.ibCopied = true; renderSheet(); }
+    toast('Script copied. Paste it into a new project on script.google.com.');
+  } catch (e) {
+    try { await loadInboxScript(); } catch (x) { toast("Couldn't load the script. Check you're online and try again."); return; }
+    if (S.sheet) { S.sheet.ibShow = true; renderSheet(); const ta = $('#ib-script'); if (ta) { ta.focus(); ta.select(); } }
+    toast("Couldn't copy it automatically. Select the script below and copy it.");
+  }
+}
+async function connectInbox() {
+  const v = (($('#ib-url') || {}).value || '').trim();
+  if (!/^https:\/\/script\.google\.com\/(a\/[^/]+\/)?macros\/s\/[\w-]+\/exec\b/.test(v)) return flagField('ib-url', 'Paste the Web app URL. It starts with https://script.google.com/macros/s/ and ends with /exec.');
+  if (!S.inbox || !S.inbox.key) { toast('Copy the setup script first, so it has your key.'); return; }
+  Object.assign(S.inbox, { url: v.replace(/[?#].*$/, ''), since: Math.floor(Date.now() / 1000) - INBOX_FIRST, seen: {}, pending: S.inbox.pending || [], error: '' });
+  saveInbox();
+  toast('Connecting…');
+  const r = await checkInbox(true);
+  if (S.sheet && S.sheet.kind === 'settings') renderSheet();
+  if (r.ok) toast(r.found ? `Connected. Found ${r.found} payment email${r.found === 1 ? '' : 's'} from the last 3 days.` : 'Connected. No payment emails from the last 3 days.');
+  else toast(inboxProblem());
+}
+function inboxProblem() {
+  const e = S.inbox && S.inbox.error;
+  return e === 'key' ? "The Google script doesn't have this phone's key. Copy the setup script again, paste it over the old one and deploy a new version."
+    : e === 'net' ? "Couldn't reach your Google script. Check you're online, and that the deployment is set so Anyone can access it." : '';
+}
+// Asks the script for bank emails since the last check. On its own it runs at most every couple of minutes.
+async function checkInbox(manual) {
+  const ib = S.inbox;
+  if (!inboxOn() || S.inboxBusy) return { ok: false };
+  if (!manual && (Date.now() - (ib.lastTry || 0) < INBOX_GAP || navigator.onLine === false)) return { ok: false };
+  S.inboxBusy = true; ib.lastTry = Date.now();
+  let res = { ok: false, found: 0 };
+  try {
+    const since = ib.since || Math.floor(Date.now() / 1000) - INBOX_FIRST;
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null, timer = setTimeout(() => { if (ctl) ctl.abort(); }, 30000);
+    let j;
+    try { const r = await fetch(`${ib.url}?key=${encodeURIComponent(ib.key)}&since=${since}`, { cache: 'no-store', signal: ctl ? ctl.signal : undefined }); j = await r.json(); }
+    catch (e) { throw { code: 'net' }; }
+    finally { clearTimeout(timer); }
+    if (!j || j.error === 'key') throw { code: 'key' };
+    if (!Array.isArray(j.items)) throw { code: 'net' };
+    const old = Math.floor(Date.now() / 1000) - 40 * 86400;
+    ib.seen = ib.seen || {}; ib.pending = ib.pending || [];
+    Object.keys(ib.seen).forEach(id => { if (ib.seen[id] < old) delete ib.seen[id]; });
+    let found = 0, other = 0;
+    j.items.forEach(x => {
+      if (!x || !x.id || ib.seen[x.id]) return;
+      ib.seen[x.id] = Math.floor(Date.parse(x.at) / 1000) || j.now || 1;
+      const p = SnapParse.parseAlert(x);
+      if (!p) { other++; return; }
+      ib.pending.push(Object.assign(p, { id: x.id, at: x.at, text: String(x.text || '').trim().slice(0, 3000) }));
+      found++;
+    });
+    if (j.now) ib.since = Math.max(since, j.now - INBOX_OVERLAP);
+    Object.assign(ib, { lastOk: Date.now(), error: '', lastFound: found, lastOther: other });
+    res = { ok: true, found, other };
+  } catch (e) {
+    ib.error = e && e.code === 'key' ? 'key' : 'net';
+  }
+  S.inboxBusy = false;
+  saveInbox();
+  renderBanner();
+  return res;
+}
+function inboxDone(ids) {
+  if (!S.inbox) return;
+  const gone = new Set(ids);
+  S.inbox.pending = (S.inbox.pending || []).filter(p => !gone.has(p.id));
+  saveInbox(); renderBanner();
+}
+// Puts the waiting payments on the usual review screen, one group per bank, with the card worked
+// out from the email (or the card you picked for that bank's emails last time).
+function reviewInbox() {
+  const ib = S.inbox, I = S.imp;
+  if (!inboxOn() || !ib.pending.length) return;
+  if (I.status !== 'idle' || I.files.length || (I.text || '').trim()) { S.tab = 'import'; render(); toast("Finish or discard the scan that's open first."); return; }
+  if (!accById(I.accountId)) I.accountId = (accts()[0] || {}).id;
+  const hints = st().acctHints || {}, rules = st().rules || {}, hasCat = id => !!catById(id), bySrc = {};
+  ib.pending.forEach(p => (bySrc[p.src] = bySrc[p.src] || []).push(p));
+  const results = Object.keys(bySrc).map(src => {
+    const ps = bySrc[src], hk = 'mail:' + src, label = ps[0].label;
+    let found = SnapParse.detectAccount(ps[0].accText || '', accts(), hints).found;
+    if (hints['h:' + hk] && accById(hints['h:' + hk])) found = { id: hints['h:' + hk], why: `the ${label} emails you added before` };
+    const transactions = [], skipped = [];
+    ps.forEach(p => {
+      const base = { date: p.date, dateGuessed: !p.date, raw: p.raw, amount: p.amount };
+      if (p.kind === 'topup') { skipped.push(Object.assign(base, { kind: 'topup', credit: true })); return; }
+      const c = SnapParse.categorise(p.raw, { rules, hasCat });
+      transactions.push(Object.assign(base, { merchant: c.merchant, kind: p.kind, cat: p.kind === 'inc' ? null : c.cat, how: p.kind === 'inc' ? 'none' : c.how, fx: '' }));
+    });
+    return { label: `${label} emails`, thumb: '', found, signals: { last4: [], headKey: hk }, transactions, skipped };
+  });
+  buildRows(results, []);
+  I.fromInbox = ib.pending.map(p => p.id);
+  I.source = ib.pending.map(p => `=== ${p.label} email, ${new Date(p.at).toLocaleString('en-SG', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} ===\n${p.text}`).join('\n\n');
+  I.showSource = false;
+  S.tab = 'import'; S.budgetEdit = false;
+  render(); window.scrollTo(0, 0);
+}
+const agoText = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(ms).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' }); };
+function inboxSettings(s) {
+  const ib = S.inbox;
+  let h = '<div class="sub-h">Payments from email</div>';
+  if (S.demo) return h + '<p class="muted" style="font-size:13px">Start your ledger first, then connect your email here.</p>';
+  if (inboxOn()) {
+    const status = ib.error === 'key' ? '<span class="t-bad">Key doesn\'t match</span>' : ib.error === 'net' ? '<span class="t-warn">Couldn\'t reach it</span>' : '<span class="t-good">Connected</span>';
+    h += `<div class="kv"><span>Status</span><span>${status}</span></div>
+      <div class="kv"><span>Last checked</span><span>${ib.lastOk ? esc(agoText(ib.lastOk)) : 'Not yet'}</span></div>
+      ${ib.pending.length ? `<div class="kv"><span>Waiting for you</span><span>${ib.pending.length} <button class="btn ghost small" data-act="ib-review">Review</button></span></div>` : ''}
+      ${ib.error ? `<p class="err" style="font-size:13px">${esc(inboxProblem())}</p>` : ''}
+      <p class="muted" style="font-size:13px">Reads PayLah! payment alerts for now. It checks whenever you open the app. You check each payment before it's added.</p>
+      <div class="sheet-actions"><button class="btn" data-act="ib-check">Check now</button><button class="btn danger" data-act="ib-off">Disconnect</button></div>
+      <button class="btn ghost small wide" data-act="ib-copy" style="margin-top:6px">Copy the setup script again</button>`;
+  } else {
+    h += `<p class="muted" style="font-size:13px;margin-top:0">Bring in PayLah! payments from their alert emails, without typing. A small script in your own Google account reads only your banks' emails and passes them to this phone. You check each payment before it's added.</p>
+      <ul class="how ib-steps">
+        <li><span>1</span><div><p><b>Copy the setup script.</b> It includes a private key for this phone.</p><button class="btn small${s.ibCopied ? '' : ' primary'}" data-act="ib-copy">${s.ibCopied ? 'Copied. Copy again' : 'Copy setup script'}</button></div></li>
+        <li><span>2</span><div><p><b>Paste it into a new project</b> at script.google.com, replacing what's there. On iPhone, open it in Safari and tap <b>aA</b> › <b>Request Desktop Website</b> first.</p></div></li>
+        <li><span>3</span><div><p><b>Deploy it.</b> Deploy › New deployment › the gear › Web app. Set Execute as <b>Me</b> and Who has access <b>Anyone</b>, then Deploy. When Google warns the app isn't verified (you made it), tap Advanced › Go to the project › Allow.</p></div></li>
+        <li><span>4</span><div><p><b>Paste the Web app URL here.</b></p><input class="in" id="ib-url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"><button class="btn small primary" data-act="ib-connect">Connect</button></div></li>
+      </ul>
+      ${s.ibShow && inboxScript && ib && ib.key ? `<textarea class="in ta" id="ib-script" rows="6" readonly>${esc(filledScript(inboxScript))}</textarea>` : ''}`;
+  }
+  return h;
 }
 
 /* ---------- sheets ---------- */
@@ -1837,6 +1995,7 @@ function renderSheet() {
   } else if (s.kind === 'stat') {
     statSheet(el, s);
   } else if (s.kind === 'settings') {
+    if (!inboxOn()) loadInboxScript().catch(() => {});
     const ruleN = Object.keys(st().rules || {}).length;
     const all = txCount();
     const lb = !S.demo && st().lastBackup;
@@ -1857,6 +2016,7 @@ function renderSheet() {
       <div class="sub-h">Expense categories</div><p class="muted" style="font-size:13px;margin:-4px 0 8px">Use the arrows to set the order they appear in across the app.</p><div class="cat-list">${cats().filter(c => c.type === 'exp').map(catRow).join('')}</div>
       <div class="sub-h">Income categories</div><div class="cat-list">${cats().filter(c => c.type === 'inc').map(catRow).join('')}</div>
       <div class="row2" style="grid-template-columns:1fr 110px auto"><input class="in" id="new-cat" placeholder="New category" maxlength="32"><select class="in" id="new-cat-type"><option value="exp">Expense</option><option value="inc">Income</option></select><button class="btn small" data-act="add-cat" style="height:44px">Add</button></div>
+      ${inboxSettings(s)}
       <div class="sub-h">Scanning</div>
       <div class="kv"><span>Remembered merchants</span><span>${ruleN} ${ruleN ? '<button class="btn ghost small" data-act="clear-rules">Forget all</button>' : ''}</span></div>
       <button class="btn wide" data-act="wl-open" style="margin-top:4px">How Snap Ledger works</button>
@@ -2211,8 +2371,16 @@ document.addEventListener('click', e => {
     case 'restore-ok': if (S.sheet && S.sheet.backup) restoreBackup(S.sheet.backup); break;
     case 'pw-ok': answerPassword(($('#pdf-pw') || {}).value || ''); break;
     case 'pw-skip': answerPassword(null); break;
-    case 'imp-back': S.imp.status = 'idle'; S.imp.rows = []; render(); break;
-    case 'imp-reset': resetImport(); render(); break;
+    case 'imp-back': Object.assign(S.imp, { status: 'idle', rows: [], fromInbox: null, source: '' }); render(); break;
+    case 'imp-reset': { const ids = S.imp.fromInbox; resetImport(); if (ids) { inboxDone(ids); toast("Discarded. Those emails won't come in again."); } render(); break; }
+    case 'ib-copy': copyInboxScript(); break;
+    case 'ib-connect': connectInbox(); break;
+    case 'ib-review': if (S.sheet) closeSheet(); reviewInbox(); break;
+    case 'ib-check': checkInbox(true).then(r => { if (S.sheet && S.sheet.kind === 'settings') renderSheet(); toast(r.ok ? (r.found ? `${r.found} new payment email${r.found === 1 ? '' : 's'}.` : 'No new payment emails.') : inboxProblem() || 'Checking already.'); }); break;
+    case 'ib-off':
+      if (b.dataset.armed) { S.inbox = null; saveInbox(); renderBanner(); renderSheet(); toast('Disconnected. You can also delete the project on script.google.com.'); }
+      else { b.dataset.armed = '1'; b.textContent = 'Tap again to disconnect'; }
+      break;
     case 'imp-approve': approveRows(); break;
     case 'rv-all': { const all = S.imp.rows.every(r => r.sel); S.imp.rows.forEach(r => r.sel = !all); $('#rv-list').innerHTML = vGroups(); $('#rv-foot').innerHTML = vFoot(); b.textContent = all ? 'Tick all' : 'Untick all'; break; }
   }
@@ -2220,7 +2388,7 @@ document.addEventListener('click', e => {
 
 function onField(e, isChange) {
   const el = e.target;
-  if (!isChange && el.classList && el.classList.contains('unsure') && (el.id === 'c-name' || el.id === 'f-amt' || el.id === 'b-val')) el.classList.remove('unsure');
+  if (!isChange && el.classList && el.classList.contains('unsure') && (el.id === 'c-name' || el.id === 'f-amt' || el.id === 'b-val' || el.id === 'ib-url')) el.classList.remove('unsure');
   if (el.id === 'imp-acc') { S.imp.accountId = el.value; return; }
   if (el.id === 'restore-file') { if (isChange && el.files && el.files[0]) readBackup(el.files[0]); if (isChange) el.value = ''; return; }
   if (el.id === 'imp-text') {
@@ -2341,6 +2509,9 @@ async function boot() {
   await Store.init();
   try { const pre = new Image(); pre.src = OK_BUNNY; } catch (e) {}
   if (S.demo && S.mode === 'device' && !lsGet('snapledger:welcomed')) openSheet({ kind: 'welcome', step: 0 });
+  renderBanner();
+  checkInbox(false);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkInbox(false); });
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     const hadController = !!navigator.serviceWorker.controller;
     let reloading = false;
