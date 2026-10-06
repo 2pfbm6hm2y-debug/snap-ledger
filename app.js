@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.18.0';
+const APP_VERSION = '1.18.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1818,17 +1818,23 @@ function reviewInbox() {
   if (I.status !== 'idle' || I.files.length || (I.text || '').trim()) { S.tab = 'import'; render(); toast("Finish or discard the scan that's open first."); return; }
   if (!accById(I.accountId)) I.accountId = (accts()[0] || {}).id;
   const hints = st().acctHints || {}, rules = st().rules || {}, hasCat = id => !!catById(id), bySrc = {};
-  ib.pending.forEach(p => (bySrc[p.src] = bySrc[p.src] || []).push(p));
-  const results = Object.keys(bySrc).map(src => {
-    const ps = bySrc[src], hk = 'mail:' + src, label = ps[0].label;
+  // One group per bank and card, so each card's payments land on that card.
+  ib.pending.forEach(p => { const g = p.src + (p.card ? ':' + p.card : ''); (bySrc[g] = bySrc[g] || []).push(p); });
+  const results = Object.keys(bySrc).map(g => {
+    const ps = bySrc[g], hk = 'mail:' + g, label = ps[0].label + (ps[0].card ? ' ••' + ps[0].card : '');
     let found = SnapParse.detectAccount(ps[0].accText || '', accts(), hints).found;
+    // PayLah! goes to an account named PayLah, or else the DBS bank account it's part of.
+    if (!found && ps[0].src === 'paylah') {
+      const a = accts().find(x => /pay\s*lah/i.test(x.name + ' ' + (x.match || ''))) || accts().find(x => x.kind === 'debit' && /\b(dbs|posb)\b/i.test(x.name));
+      if (a) found = { id: a.id, why: /pay\s*lah/i.test(a.name + ' ' + (a.match || '')) ? 'name "PayLah"' : 'your DBS account' };
+    }
     if (hints['h:' + hk] && accById(hints['h:' + hk])) found = { id: hints['h:' + hk], why: `the ${label} emails you added before` };
     const transactions = [], skipped = [];
     ps.forEach(p => {
       const base = { date: p.date, dateGuessed: !p.date, raw: p.raw, amount: p.amount };
       if (p.kind === 'topup') { skipped.push(Object.assign(base, { kind: 'topup', credit: true })); return; }
       const c = SnapParse.categorise(p.raw, { rules, hasCat });
-      transactions.push(Object.assign(base, { merchant: c.merchant, kind: p.kind, cat: p.kind === 'inc' ? null : c.cat, how: p.kind === 'inc' ? 'none' : c.how, fx: '' }));
+      transactions.push(Object.assign(base, { merchant: c.merchant, kind: p.kind, cat: p.kind === 'inc' ? null : c.cat, how: p.kind === 'inc' ? 'none' : c.how, fx: p.fx || '' }));
     });
     return { label: `${label} emails`, thumb: '', found, signals: { last4: [], headKey: hk }, transactions, skipped };
   });
@@ -1850,11 +1856,11 @@ function inboxSettings(s) {
       <div class="kv"><span>Last checked</span><span>${ib.lastOk ? esc(agoText(ib.lastOk)) : 'Not yet'}</span></div>
       ${ib.pending.length ? `<div class="kv"><span>Waiting for you</span><span>${ib.pending.length} <button class="btn ghost small" data-act="ib-review">Review</button></span></div>` : ''}
       ${ib.error ? `<p class="err" style="font-size:13px">${esc(inboxProblem())}</p>` : ''}
-      <p class="muted" style="font-size:13px">Reads PayLah! payment alerts for now. It checks whenever you open the app. You check each payment before it's added.</p>
+      <p class="muted" style="font-size:13px">Reads DBS card and PayLah! alerts for now. It checks whenever you open the app. You check each payment before it's added.</p>
       <div class="sheet-actions"><button class="btn" data-act="ib-check">Check now</button><button class="btn danger" data-act="ib-off">Disconnect</button></div>
       <button class="btn ghost small wide" data-act="ib-copy" style="margin-top:6px">Copy the setup script again</button>`;
   } else {
-    h += `<p class="muted" style="font-size:13px;margin-top:0">Bring in PayLah! payments from their alert emails, without typing. A small script in your own Google account reads only your banks' emails and passes them to this phone. You check each payment before it's added.</p>
+    h += `<p class="muted" style="font-size:13px;margin-top:0">Bring in payments from your bank's alert emails, without typing. It reads DBS card and PayLah! alerts for now. A small script in your own Google account reads only your banks' emails and passes them to this phone. You check each payment before it's added.</p>
       <ul class="how ib-steps">
         <li><span>1</span><div><p><b>Copy the setup script.</b> It includes a private key for this phone.</p><button class="btn small${s.ibCopied ? '' : ' primary'}" data-act="ib-copy">${s.ibCopied ? 'Copied. Copy again' : 'Copy setup script'}</button></div></li>
         <li><span>2</span><div><p><b>Paste it into a new project</b> at script.google.com, replacing what's there. On iPhone, open it in Safari and tap <b>aA</b> › <b>Request Desktop Website</b> first.</p></div></li>

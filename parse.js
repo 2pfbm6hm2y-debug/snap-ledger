@@ -453,16 +453,19 @@
 
   // ---- bank alert emails ----
   // An email from the inbox script: { id, at (ISO time it arrived), from, subject, text }.
-  // Returns one payment: { src, label, kind ('exp', 'inc' or 'topup'), amount, date, time, raw, ref, accText },
+  // Returns one payment: { src, label, kind ('exp', 'inc' or 'topup'), amount, fx, date, time, raw, ref, card, accText },
   // or null when it isn't a payment alert the app knows.
   const ALERT_LABELS = ['Date\\s*&\\s*Time', 'Amount', 'From', 'To', 'Transaction\\s+Ref(?:erence)?(?:\\s+No\\.?)?'];
   function alertField(text, label) {
     const stop = ALERT_LABELS.map(l => '\\b' + l + '\\s*:').join('|');
-    const re = new RegExp('\\b' + label + '\\s*:\\s*([\\s\\S]*?)\\s*(?=' + stop + '|\\bTo view\\b|\\bDear\\b|\\n\\s*\\n|$)', 'i');
+    const re = new RegExp('\\b' + label + '\\s*:\\s*([\\s\\S]*?)\\s*(?=' + stop + '|\\bTo view\\b|\\bDear\\b|\\bIf unauthori[sz]ed\\b|\\bThank you for\\b|\\n\\s*\\n|$)', 'i');
     const m = re.exec(text);
     return m ? m[1].replace(/\s+/g, ' ').trim() : '';
   }
   function alertDate(s, at) {
+    // "06/10/26": day first, as Singapore banks write it.
+    const n = /\b(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})\b/.exec(s || '');
+    if (n && +n[2] >= 1 && +n[2] <= 12) return { date: iso(n[3].length === 2 ? 2000 + +n[3] : +n[3], +n[2], +n[1]), time: '' };
     const m = /(\d{1,2})\s+([A-Za-z]{3,9})\.?(?:\s+(\d{4}))?(?:,?\s+(\d{1,2}):(\d{2}))?/.exec(s || '');
     const mon = m && MON[m[2].toLowerCase().slice(0, 3)];
     if (!mon) return null;
@@ -471,19 +474,23 @@
     if (!m[3] && mon > got.getMonth() + 2) y -= 1; // a December alert read in January
     return { date: iso(y, mon, +m[1]), time: m[4] ? pad(+m[4]) + ':' + m[5] : '' };
   }
-  function alertAmount(s) {
-    const m = /(?:SGD|S\$)\s*([\d,]+(?:\.\d{1,2})?)/i.exec(s || '') || /([\d,]+\.\d{2})/.exec(s || '');
-    const v = m ? parseFloat(m[1].replace(/,/g, '')) : NaN;
-    return v > 0 ? Math.round(v * 100) / 100 : null;
+  // The amount and, when it isn't in Singapore dollars, its currency (so the review asks you to check it).
+  function alertMoney(s) {
+    const m = /\b(SGD|S\$|[A-Z]{3})\s*([\d,]+(?:\.\d{1,2})?)/.exec(s || '') || /()([\d,]+\.\d{2})/.exec(s || '');
+    const v = m ? parseFloat(m[2].replace(/,/g, '')) : NaN;
+    if (!(v > 0)) return null;
+    return { amount: Math.round(v * 100) / 100, fx: m[1] && !/^(SGD|S\$)$/i.test(m[1]) ? m[1].toUpperCase() : '' };
   }
+  const alertRef = text => (/Transaction\s+Ref(?:erence)?(?:\s+No\.?)?\s*:\s*([A-Z0-9-]+)/i.exec(text) || [])[1] || '';
+  const alertWhen = (text, item) => alertDate(alertField(text, 'Date\\s*&\\s*Time'), item.at) || alertDate((/dated\s+([^\n]+?)\.?(?:\s+We\b|\n|$)/i.exec(text) || [])[1], item.at);
   // DBS PayLah!: "We refer to your PayLah! Scan & Pay Transfer dated 05 Oct ..." with Date & Time,
   // Amount, From and To lines. Paying from the wallet is spending, money into it from someone else
   // is income, and a top-up from your own bank account only moves money.
   function readPaylah(text, item) {
-    const amount = alertAmount(alertField(text, 'Amount'));
+    const money = alertMoney(alertField(text, 'Amount'));
     const from = alertField(text, 'From'), to = alertField(text, 'To');
-    if (!amount || !(from || to)) return null;
-    const when = alertDate(alertField(text, 'Date\\s*&\\s*Time'), item.at) || alertDate((/dated\s+([^.\n]+)/i.exec(text) || [])[1], item.at);
+    if (!money || !(from || to)) return null;
+    const when = alertWhen(text, item);
     const wallet = s => /pay\s*lah/i.test(s);
     const ownBank = s => !wallet(s) && /\b(dbs|posb|multiplier|savings|current|account|a\/c)\b|\d{3}-?\d{5,}/i.test(s);
     const side = s => s.replace(/\(\s*mobile\s+ending\s+\d+\s*\)/i, '').replace(/\s+/g, ' ').trim();
@@ -493,11 +500,21 @@
     else if (wallet(to) && !wallet(from)) { kind = 'inc'; raw = side(from); }
     else return null;
     if (!raw) return null;
-    const ref = (/Transaction\s+Ref(?:erence)?(?:\s+No\.?)?\s*:\s*([A-Z0-9-]+)/i.exec(text) || [])[1] || '';
-    return { kind, amount, date: when ? when.date : null, time: when ? when.time : '', raw: raw.slice(0, 120), ref, accText: 'DBS PAYLAH! WALLET' };
+    return { kind, amount: money.amount, fx: money.fx, date: when ? when.date : null, time: when ? when.time : '', raw: raw.slice(0, 120), ref: alertRef(text), card: '', accText: 'DBS PAYLAH! WALLET' };
+  }
+  // DBS/POSB cards: "Card Transaction Alert ... Amount: SGD4.10, From: DBS/POSB card ending 1234,
+  // To: MERCHANT". The card's last 4 digits pick the card.
+  function readDbsCard(text, item) {
+    const money = alertMoney(alertField(text, 'Amount'));
+    const from = alertField(text, 'From'), to = alertField(text, 'To').replace(/\s+/g, ' ').trim();
+    const card = (/card\s+ending\s*(?:in\s*)?(\d{4})/i.exec(from) || [])[1];
+    if (!money || !card || !to) return null;
+    const when = alertWhen(text, item);
+    return { kind: 'exp', amount: money.amount, fx: money.fx, date: when ? when.date : null, time: when ? when.time : '', raw: to.slice(0, 120), ref: alertRef(text), card, accText: 'DBS/POSB card ending ' + card };
   }
   const ALERTS = [
     { src: 'paylah', label: 'PayLah!', test: (t, it) => /pay\s*lah/i.test(t + ' ' + (it.from || '')) && /\bamount\s*:/i.test(t), read: readPaylah },
+    { src: 'dbscard', label: 'DBS card', test: (t, it) => /\bfrom\s*:\s*(dbs|posb)[^\n]*card\s+ending/i.test(t) && /\bamount\s*:/i.test(t), read: readDbsCard },
   ];
   function parseAlert(item) {
     item = item || {};
