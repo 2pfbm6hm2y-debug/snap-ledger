@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.17.14';
+const APP_VERSION = '1.17.15';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -720,9 +720,9 @@ function dayLimit(iso) {
   const share = Math.max(0, dB - before - mOver) / (days - d + 1);
   return { limit: Math.min(daily0, share), daily: daily0, dB, days, mOver, ahead: before > daily0 * (d - 1) + 0.5, overBills: monthly.filter(c => (mSp[c.id] || 0) > c.budget + 0.004), spent: round2(on) };
 }
-// Looking back from yesterday: days in a row that daily spending stayed within the daily budget, and
-// how many of the last seven did. It's the same line the day-by-day calendar uses, so a day the
-// calendar shows as within budget always counts here. Only days since the ledger's first entry count.
+// Looking back from yesterday: days in a row that daily spending stayed within that day's allowance,
+// and how many of the last seven did. Only days since the ledger's first entry count. The day-by-day
+// calendar measures days against the fixed daily budget instead, on purpose.
 function dailyStreak() {
   const first = allTx().reduce((m, t) => t.type === 'exp' && (!m || t.d < m) ? t.d : m, '');
   if (!first) return null;
@@ -734,7 +734,7 @@ function dailyStreak() {
     if (iso < first) break;
     const x = dayLimit(iso);
     if (!x) break;
-    const ok = x.spent <= x.daily + 0.004;
+    const ok = x.spent <= x.limit + 0.5;
     if (i === 1) yesterday = x;
     if (i <= 7) { weekDays++; if (ok) week++; }
     if (run && ok) streak++; else run = false;
@@ -746,9 +746,9 @@ function cheerLine() {
   const k = dailyStreak();
   if (!k) return '';
   let head = '', sub = '';
-  if (k.streak >= 2) { head = `${k.streak} days in a row`; sub = `Within your daily budget each day. ${k.streak >= 7 ? "That's a great run!" : 'Keep it going!'}`; }
-  else if (k.streak === 1) { head = 'Good day yesterday'; sub = `You spent ${money(k.yesterday.spent)} of your ${money(k.yesterday.daily)} daily budget.`; }
-  else if (k.weekDays >= 4 && k.week >= Math.ceil(k.weekDays / 2)) { head = `${k.week} of the last ${k.weekDays} days`; sub = 'Within your daily budget. Nice and steady.'; }
+  if (k.streak >= 2) { head = `${k.streak} days in a row`; sub = `Within your allowance each day. ${k.streak >= 7 ? "That's a great run!" : 'Keep it going!'}`; }
+  else if (k.streak === 1) { head = 'Good day yesterday'; sub = `You spent ${money(k.yesterday.spent)} of your ${money(k.yesterday.limit)} allowance.`; }
+  else if (k.weekDays >= 4 && k.week >= Math.ceil(k.weekDays / 2)) { head = `${k.week} of the last ${k.weekDays} days`; sub = 'Within your allowance. Nice and steady.'; }
   if (!head) return '';
   return `<div class="cheer"><span class="cheer-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2l2.4 5.5 6 .6-4.5 4 1.3 5.9L12 16.1l-5.2 3.1 1.3-5.9-4.5-4 6-.6z"/></svg></span><span class="cheer-tx"><b>${head}</b><span>${sub}</span></span></div>`;
 }
