@@ -66,9 +66,10 @@ spending. Projected savings count each one at its budget until it comes in highe
 ## Stats
 
 Stats opens with today's allowance for your daily categories and what they've spent so
-far, with a cheer when you've kept within it on recent days. The allowance is your daily
-budget, or less when you need to make up for spending above plan or a monthly bill over
-budget. Below that is one bar
+far, with a cheer when you've kept within your daily budget on recent days. The allowance is
+your daily budget, or less when you need to make up for spending above plan or a monthly bill
+over budget. The cheer and the day-by-day calendar both measure days against the daily budget,
+which stays the same all month. Below that is one bar
 for the whole month's budget, with a marker for where today's plan is. Below
 it are your categories in your own order, each with one status in words, and a switch
 to see spending by card. Tap the month or any category to see it day by day and over the
