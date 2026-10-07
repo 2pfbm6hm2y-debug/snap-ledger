@@ -84,7 +84,7 @@ running total for the year instead.
 ## Payments from email
 
 Snap Ledger can bring in payments from your bank's alert emails, so you don't type them.
-It reads DBS card and PayLah! alerts for now. A small script (`email-inbox.gs`) runs in your own
+It reads DBS card, PayLah! and Citi card alerts for now. A small script (`email-inbox.gs`) runs in your own
 Google account: when the app asks with its secret key, the script looks for emails from
 your banks' addresses since the last check and sends their text to the phone. It only
 reads, keeps nothing, and ignores every other email.

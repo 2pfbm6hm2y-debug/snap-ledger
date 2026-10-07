@@ -455,10 +455,11 @@
   // An email from the inbox script: { id, at (ISO time it arrived), from, subject, text }.
   // Returns one payment: { src, label, kind ('exp', 'inc' or 'topup'), amount, fx, date, time, raw, ref, card, accText },
   // or null when it isn't a payment alert the app knows.
-  const ALERT_LABELS = ['Date\\s*&\\s*Time', 'Amount', 'From', 'To', 'Transaction\\s+Ref(?:erence)?(?:\\s+No\\.?)?'];
+  const ALERT_LABELS = ['Date\\s*&\\s*Time', 'Amount', 'From', 'To', 'Transaction\\s+Ref(?:erence)?(?:\\s+No\\.?)?',
+    'Account\\s+number', 'Transaction\\s+(?:date|time|amount|details)'];
   function alertField(text, label) {
     const stop = ALERT_LABELS.map(l => '\\b' + l + '\\s*:').join('|');
-    const re = new RegExp('\\b' + label + '\\s*:\\s*([\\s\\S]*?)\\s*(?=' + stop + '|\\bTo view\\b|\\bDear\\b|\\bIf unauthori[sz]ed\\b|\\bThank you for\\b|\\n\\s*\\n|$)', 'i');
+    const re = new RegExp('\\b' + label + '\\s*:\\s*([\\s\\S]*?)\\s*(?=' + stop + '|\\bTo view\\b|\\bDear\\b|\\bIf unauthori[sz]ed\\b|\\bIf you did not\\b|\\bThank you for\\b|\\n\\s*\\n|$)', 'i');
     const m = re.exec(text);
     return m ? m[1].replace(/\s+/g, ' ').trim() : '';
   }
@@ -512,9 +513,22 @@
     const when = alertWhen(text, item);
     return { kind: 'exp', amount: money.amount, fx: money.fx, date: when ? when.date : null, time: when ? when.time : '', raw: to.slice(0, 120), ref: alertRef(text), card, accText: 'DBS/POSB card ending ' + card };
   }
+  // Citi cards: "there is a charge made on your Citi Cash Back Card" with Account number
+  // (XXXX-XXXX-XXXX-1234), Transaction date (07/10/26), time, amount and details (the merchant).
+  function readCiti(text, item) {
+    const money = alertMoney(alertField(text, 'Transaction\\s+amount'));
+    const raw = alertField(text, 'Transaction\\s+details');
+    const card = (/(\d{4})\s*$/.exec(alertField(text, 'Account\\s+number')) || [])[1];
+    if (!money || !raw || !card) return null;
+    const d = alertDate(alertField(text, 'Transaction\\s+date'), item.at), t = /(\d{1,2}):(\d{2})/.exec(alertField(text, 'Transaction\\s+time'));
+    const name = ((/on\s+your\s+(Citi[^:\n]*?)\s*(?:card)?\s*:/i.exec(text) || [])[1] || 'Citi').trim();
+    return { kind: /\b(refund|reversal|reversed|credited)\b/i.test(text.slice(0, 400)) ? 'ref' : 'exp', amount: money.amount, fx: money.fx,
+      date: d ? d.date : null, time: t ? pad(+t[1]) + ':' + t[2] : '', raw: raw.slice(0, 120), ref: '', card, accText: name + ' card ending ' + card };
+  }
   const ALERTS = [
     { src: 'paylah', label: 'PayLah!', test: (t, it) => /pay\s*lah/i.test(t + ' ' + (it.from || '')) && /\bamount\s*:/i.test(t), read: readPaylah },
     { src: 'dbscard', label: 'DBS card', test: (t, it) => /\bfrom\s*:\s*(dbs|posb)[^\n]*card\s+ending/i.test(t) && /\bamount\s*:/i.test(t), read: readDbsCard },
+    { src: 'citi', label: 'Citi', test: (t, it) => /citi/i.test((it.from || '') + ' ' + t) && /\btransaction\s+amount\s*:/i.test(t), read: readCiti },
   ];
   function parseAlert(item) {
     item = item || {};

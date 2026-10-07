@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.18.1';
+const APP_VERSION = '1.18.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1856,11 +1856,11 @@ function inboxSettings(s) {
       <div class="kv"><span>Last checked</span><span>${ib.lastOk ? esc(agoText(ib.lastOk)) : 'Not yet'}</span></div>
       ${ib.pending.length ? `<div class="kv"><span>Waiting for you</span><span>${ib.pending.length} <button class="btn ghost small" data-act="ib-review">Review</button></span></div>` : ''}
       ${ib.error ? `<p class="err" style="font-size:13px">${esc(inboxProblem())}</p>` : ''}
-      <p class="muted" style="font-size:13px">Reads DBS card and PayLah! alerts for now. It checks whenever you open the app. You check each payment before it's added.</p>
+      <p class="muted" style="font-size:13px">Reads DBS card, PayLah! and Citi card alerts for now. It checks whenever you open the app. You check each payment before it's added.</p>
       <div class="sheet-actions"><button class="btn" data-act="ib-check">Check now</button><button class="btn danger" data-act="ib-off">Disconnect</button></div>
       <button class="btn ghost small wide" data-act="ib-copy" style="margin-top:6px">Copy the setup script again</button>`;
   } else {
-    h += `<p class="muted" style="font-size:13px;margin-top:0">Bring in payments from your bank's alert emails, without typing. It reads DBS card and PayLah! alerts for now. A small script in your own Google account reads only your banks' emails and passes them to this phone. You check each payment before it's added.</p>
+    h += `<p class="muted" style="font-size:13px;margin-top:0">Bring in payments from your bank's alert emails, without typing. It reads DBS card, PayLah! and Citi card alerts for now. A small script in your own Google account reads only your banks' emails and passes them to this phone. You check each payment before it's added.</p>
       <ul class="how ib-steps">
         <li><span>1</span><div><p><b>Copy the setup script.</b> It includes a private key for this phone.</p><button class="btn small${s.ibCopied ? '' : ' primary'}" data-act="ib-copy">${s.ibCopied ? 'Copied. Copy again' : 'Copy setup script'}</button></div></li>
         <li><span>2</span><div><p><b>Paste it into a new project</b> at script.google.com, replacing what's there. On iPhone, open it in Safari and tap <b>aA</b> › <b>Request Desktop Website</b> first.</p></div></li>
