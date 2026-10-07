@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.18.2';
+const APP_VERSION = '1.18.3';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1769,7 +1769,7 @@ function inboxProblem() {
 async function checkInbox(manual) {
   const ib = S.inbox;
   if (!inboxOn() || S.inboxBusy) return { ok: false };
-  if (!manual && (Date.now() - (ib.lastTry || 0) < INBOX_GAP || navigator.onLine === false)) return { ok: false };
+  if (!manual && ((!ib.error && Date.now() - (ib.lastTry || 0) < INBOX_GAP) || navigator.onLine === false)) return { ok: false };
   S.inboxBusy = true; ib.lastTry = Date.now();
   let res = { ok: false, found: 0 };
   try {
@@ -1794,10 +1794,13 @@ async function checkInbox(manual) {
       found++;
     });
     if (j.now) ib.since = Math.max(since, j.now - INBOX_OVERLAP);
-    Object.assign(ib, { lastOk: Date.now(), error: '', lastFound: found, lastOther: other });
+    Object.assign(ib, { lastOk: Date.now(), error: '', fails: 0, lastFound: found, lastOther: other });
     res = { ok: true, found, other };
   } catch (e) {
+    // A check cut short because the app is reloading (an update) or closing isn't a failure.
+    if (S.leaving) { S.inboxBusy = false; return res; }
     ib.error = e && e.code === 'key' ? 'key' : 'net';
+    ib.fails = (ib.fails || 0) + 1;
   }
   S.inboxBusy = false;
   saveInbox();
@@ -1851,11 +1854,12 @@ function inboxSettings(s) {
   let h = '<div class="sub-h">Payments from email</div>';
   if (S.demo) return h + '<p class="muted" style="font-size:13px">Start your ledger first, then connect your email here.</p>';
   if (inboxOn()) {
-    const status = ib.error === 'key' ? '<span class="t-bad">Key doesn\'t match</span>' : ib.error === 'net' ? '<span class="t-warn">Couldn\'t reach it</span>' : '<span class="t-good">Connected</span>';
+    const stuck = ib.error === 'key' || (ib.error === 'net' && (ib.fails || 0) >= 3);
+    const status = ib.error === 'key' ? '<span class="t-bad">Key doesn\'t match</span>' : stuck ? '<span class="t-warn">Couldn\'t reach it</span>' : '<span class="t-good">Connected</span>';
     h += `<div class="kv"><span>Status</span><span>${status}</span></div>
       <div class="kv"><span>Last checked</span><span>${ib.lastOk ? esc(agoText(ib.lastOk)) : 'Not yet'}</span></div>
       ${ib.pending.length ? `<div class="kv"><span>Waiting for you</span><span>${ib.pending.length} <button class="btn ghost small" data-act="ib-review">Review</button></span></div>` : ''}
-      ${ib.error ? `<p class="err" style="font-size:13px">${esc(inboxProblem())}</p>` : ''}
+      ${stuck ? `<p class="err" style="font-size:13px">${esc(inboxProblem())}</p>` : ib.error === 'net' ? '<p class="muted" style="font-size:13px">The last check didn\'t get through, so it tries again next time you open the app.</p>' : ''}
       <p class="muted" style="font-size:13px">Reads DBS card, PayLah! and Citi card alerts for now. It checks whenever you open the app. You check each payment before it's added.</p>
       <div class="sheet-actions"><button class="btn" data-act="ib-check">Check now</button><button class="btn danger" data-act="ib-off">Disconnect</button></div>
       <button class="btn ghost small wide" data-act="ib-copy" style="margin-top:6px">Copy the setup script again</button>`;
@@ -2516,6 +2520,8 @@ async function boot() {
   try { const pre = new Image(); pre.src = OK_BUNNY; } catch (e) {}
   if (S.demo && S.mode === 'device' && !lsGet('snapledger:welcomed')) openSheet({ kind: 'welcome', step: 0 });
   renderBanner();
+  window.addEventListener('pagehide', () => { S.leaving = true; });
+  window.addEventListener('pageshow', () => { S.leaving = false; });
   checkInbox(false);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkInbox(false); });
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
@@ -2525,7 +2531,7 @@ async function boot() {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!hadController || reloading) return;
       if (S.imp.status !== 'idle' || S.sheet || S.imp.files.length || (S.imp.text || '').trim()) { toast('An update is ready. It loads the next time you open the app.'); return; }
-      reloading = true; location.reload();
+      reloading = true; S.leaving = true; location.reload();
     });
     navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
       // Home Screen apps often resume without reloading, so look for updates whenever the app comes back.
