@@ -76,9 +76,10 @@ last six months. Savings leads with **gross savings**: income less everything ex
 spending, projected for this month and checked against your target (expected income minus
 your monthly budgets). Stick to your budgets and you hit the target, however big a one-off
 purchase is. Below it, special spending comes off to give **net savings**, which matches your
-balances and the end-of-month projection in Cards. Each month's bar shows gross savings, with
-the part special spending took drawn hollow, so the solid part is net. At the bottom, the year
-so far: gross savings, less special spending, gives net savings.
+balances and the end-of-month projection in Cards. Each month's bar is gross savings: the
+solid part is net savings and the hollow part is what special spending took, against the
+target line. At the bottom, the year so far: gross savings, less special spending, gives net
+savings. Tap special spending to see it month by month, and a month to see its entries.
 
 ## Spending outside the monthly budget
 

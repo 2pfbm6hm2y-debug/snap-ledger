@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.19.1';
+const APP_VERSION = '1.19.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1072,13 +1072,17 @@ function savingsSection(ym) {
   const cur = mine(ym), saved = cur.gross, hit = target && saved >= target - 0.004, spName = specialName();
   let h = head + `<div class="sv-top"><div class="hero-big${saved < 0 ? ' t-bad' : ''}"><span class="num">${money(Math.abs(saved))}</span><small>${saved >= 0 ? 'gross savings' : 'gross shortfall'}${ahead ? ', projected' : ''}</small></div>${target && saved > 0 ? `<span class="sv-pct num${hit ? ' t-good' : ''}">${Math.round(saved / target * 100)}%</span>` : ''}</div>`;
   if (ym === nowYm) h += `<p class="sv-delta">${deltaTag(projDelta())}</p>`;
-  if (target) h += `<div class="track lg" style="margin-top:12px"><div class="fill ${hit ? 'good' : saved < 0 ? 'bad' : ''}" style="width:${Math.max(0, Math.min(100, saved / target * 100)).toFixed(1)}%"></div></div>`;
+  if (target) {
+    const fillPct = Math.max(0, Math.min(100, saved / target * 100));
+    h += `<div class="track lg sv-bar${hit ? '' : ' short'}" style="margin-top:12px"><div class="fill ${hit ? 'good' : saved < 0 ? 'bad' : ''}" style="width:${fillPct.toFixed(1)}%"></div></div>
+      <div class="sv-cap">${hit ? `<span class="t-good">${saved - target > 0.5 ? `${money(saved - target)} above target` : 'On target'}</span>` : `<span class="t-warn">${money(target - saved)} short of target</span>`}</div>`;
+  }
   // How gross savings is worked out, then straight below it, how that compares with the target.
   const everyday = round2(cur.sp - cur.special);
   h += `<p class="sv-note">${ahead
-    ? `${cur.incExpected ? 'Expected income' : 'Income'} <span class="num">${money(cur.inc)}</span> − projected spending <span class="num">${money(everyday)}</span> ${cur.paced ? 'if you spend your daily budget' : budgetCats().length ? 'if every budget is used up' : 'so far'}, before special spending.`
+    ? `${cur.incExpected ? 'Expected income' : 'Income'} <span class="num">${money(cur.inc)}</span> − projected spending <span class="num">${money(everyday)}</span> ${cur.paced ? `if you spend your <span class="num">${money(cur.paced.daily0)}</span> daily budget` : budgetCats().length ? 'if every budget is used up' : 'so far'}, before special spending.`
     : `Income <span class="num">${money(cur.inc)}</span> − spending <span class="num">${money(everyday)}</span>, before special spending.`}</p>`;
-  if (target && hit) h += `<p class="sv-why">${saved - target > 0.5 ? `That's <span class="num">${money(saved - target)}</span> above your target.` : "That's right on your target."}</p>`;
+  if (target && hit) h += `<p class="sv-why">That reaches your target.</p>`;
   if (target && ahead && !hit) {
     // Why the projection falls short of the target, and what would make it up.
     const sp = spendByCat(ym), b = budgetCats(), gap = target - saved, P = cur.paced;
@@ -1097,10 +1101,12 @@ function savingsSection(ym) {
       why = listNames([over.length ? `${esc(listNames(over.map(c => c.name)))} going over budget` : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
       fix = room < gap - 0.004 ? `Even with no more spending, you'd save <span class="num">${money(saved + room)}</span>.` : `To hit the target, spend <span class="num">${money(gap)}</span> less than your budgets allow.`;
     }
-    h += `<p class="sv-why">You're <span class="num">${money(gap)}</span> short of your target${why ? ` because of ${why}` : ''}. ${fix}</p>`;
+    h += `<p class="sv-why">${why ? `It's short because of ${why}. ` : ''}${fix}</p>`;
   }
   // Net: what's left after special spending, the figure that matches your balances.
-  h += `<div class="sv-split"><div><span>${esc(spName)}${ym === nowYm ? ' this month' : ''}</span><span class="num">${cur.special > 0.004 ? '−' + money(cur.special) : money(0)}</span></div>
+  h += `<div class="sv-split">${cur.special > 0.004
+      ? `<button class="sv-sp" data-act="drill-special" data-ym="${esc(ym)}" aria-label="See ${esc(spName)} in ${esc(monthLabel(ym))}"><span>${esc(spName)}${ym === nowYm ? ' this month' : ''}</span><span class="num">−${money(cur.special)}${CHEV}</span></button>`
+      : `<div><span>${esc(spName)}${ym === nowYm ? ' this month' : ''}</span><span class="num">${money(0)}</span></div>`}
     <div class="net"><span>Net savings${ahead ? ', projected' : ''}</span><span class="num">${money(cur.saved)}</span></div></div>`;
   // Last six months, this one projected.
   const months = []; for (let k = -5; k <= 0; k++) { const m = addMonths(ym, k); if (m >= since) months.push(Object.assign(mine(m), { ym: m })); }
@@ -1111,12 +1117,12 @@ function savingsSection(ym) {
     // Each bar is gross savings against the target line. The hollow end is what special spending
     // took, so the solid part left is net savings. The legend only lists what's on the chart.
     const max = Math.max(1, target, ...months.map(x => Math.abs(x.gross))) * 1.1, pct = v => (v / max * 100).toFixed(1);
-    const kind = x => x.gross < 0 ? 'down' : !target || x.gross >= target - 0.004 ? 'hit' : 'up';
-    const seen = new Set(months.map(kind)), anySp = months.some(x => x.gross > 0 && x.special > 0.004), anyProj = months.some(x => x.ym >= nowYm);
+    const kind = x => x.gross < 0 ? 'down' : 'net';
+    const anyDown = months.some(x => x.gross < 0), anyProj = months.some(x => x.ym >= nowYm);
     const chip = (cls, label) => `<span><i class="${cls}"></i>${label}</span>`;
-    h += `<div class="sv-chart"><div class="sv-ch">Gross savings by month</div><div class="lgd">${[
-      seen.has('hit') ? chip('hit', target ? 'Target hit' : 'Saved') : '', seen.has('up') ? chip('up', 'Below target') : '', seen.has('down') ? chip('down', 'Spent more than earned') : '',
-      anySp ? chip('sp', esc(spName)) : '', target ? chip('tg', 'Target') : '', anyProj ? chip('pj', 'Projected') : ''].join('')}</div>`;
+    h += `<div class="sv-chart"><div class="sv-ch">Savings by month</div><div class="lgd">${[
+      chip('net', 'Net savings'), chip('sp', esc(spName)), chip('gr', 'Gross savings'), target ? chip('tg', 'Target') : '',
+      anyDown ? chip('down', 'Spent more than earned') : '', anyProj ? '<span class="lgd-t">≈ projected</span>' : ''].join('')}</div>`;
     h += `<div class="sv-hist">` + months.map(x => {
       const proj = x.ym >= nowYm, k = kind(x), cut = x.gross > 0 ? Math.min(x.special, x.gross) : 0;
       return `<button class="sv-row${x.ym === ym ? ' cur' : ''}" data-act="goto-month" data-ym="${x.ym}" aria-label="${esc(monthLabel(x.ym))}: ${money(x.gross)} gross${x.special > 0.004 ? `, ${money(x.saved)} net after special spending` : ''}${proj ? ', projected' : ''}">
@@ -1140,12 +1146,28 @@ function yearRecap(ym, since, nowYm, spName) {
     monthTx(mym).forEach(t => { if (t.type === 'exp' && isOutside(t.cat)) byCat[t.cat] = (byCat[t.cat] || 0) + spendAmt(t); });
   }
   if (!months) return '';
-  const thisYear = y === nowYm.slice(0, 4), lines = oc.length > 1 ? oc.filter(c => Math.abs(byCat[c.id] || 0) > 0.004).map(c => [c.name, byCat[c.id]]) : [[spName, special]];
+  const thisYear = y === nowYm.slice(0, 4), lines = oc.length > 1 ? oc.filter(c => Math.abs(byCat[c.id] || 0) > 0.004).map(c => [c.name, byCat[c.id], c.id]) : [[spName, special, '']];
   return `<div class="sv-year"><div class="sv-ch">${esc(y)}${thisYear ? ' so far' : ''}</div><div class="sv-split" style="margin-top:4px;border-top:0;padding-top:0">
     <div><span>Gross savings</span><span class="num">${money(g)}</span></div>
-    ${lines.map(([name, v]) => `<button class="sv-sp" data-act="drill-special" data-ym="${esc(thisYear ? nowYm : y + '-12')}"><span>${esc(name)}</span><span class="num">${Math.abs(v) > 0.004 ? '−' + money(v) : money(0)}</span></button>`).join('')}
+    ${lines.map(([name, v, id]) => {
+      const open = S.spOpen === (id || 'all'), list = spMonths(y, since, nowYm, id);
+      return Math.abs(v) < 0.005 ? `<div><span>${esc(name)}</span><span class="num">${money(0)}</span></div>`
+        : `<button class="sv-sp${open ? ' open' : ''}" data-act="sp-toggle" data-id="${esc(id || 'all')}" aria-expanded="${open}"><span>${esc(name)}</span><span class="num">−${money(v)}${CHEV}</span></button>
+        ${open ? `<div class="sv-spm">${list.map(([mym, mv]) => `<button class="sv-sp" data-act="drill-special" data-ym="${mym}"${id ? ` data-cat="${esc(id)}"` : ''}><span>${esc(monthName(mym))}</span><span class="num">−${money(mv)}${CHEV}</span></button>`).join('')}</div>` : ''}`;
+    }).join('')}
     <div class="net"><span>Net savings</span><span class="num">${money(n)}</span></div></div>
     ${thisYear ? `<p class="sv-note" style="margin-top:2px">${esc(monthName(nowYm))} counted as projected.</p>` : ''}</div>`;
+}
+// Months of a year with special spending (one category, or all of them), newest first.
+function spMonths(y, since, nowYm, id) {
+  const out = [];
+  for (let m = 12; m >= 1; m--) {
+    const mym = y + '-' + pad(m);
+    if (mym > nowYm) continue;
+    const v = monthTx(mym).reduce((n, t) => n + (t.type === 'exp' && isOutside(t.cat) && (!id || t.cat === id) ? spendAmt(t) : 0), 0);
+    if (Math.abs(v) > 0.004) out.push([mym, round2(v)]);
+  }
+  return out;
 }
 // What special spending is called: the one category outside the budget, or a general name.
 function specialName() { const oc = cats().filter(c => c.type === 'exp' && c.outside); return oc.length === 1 ? oc[0].name : 'Special spending'; }
@@ -2344,9 +2366,10 @@ document.addEventListener('click', e => {
     case 'goto-savings': { const el = document.getElementById('savings'); if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -70); } break; }
     case 'drill-special': {
       const oc = cats().filter(c => c.type === 'exp' && c.outside);
-      S.month = b.dataset.ym; S.filterCat = oc.length === 1 ? oc[0].id : null; S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0);
+      S.month = b.dataset.ym; S.filterCat = b.dataset.cat || (oc.length === 1 ? oc[0].id : null); S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0);
       break;
     }
+    case 'sp-toggle': { S.spOpen = S.spOpen === id ? null : id; const y = window.scrollY; render(); window.scrollTo(0, y); break; }
     case 'budget-edit': S.budgetEdit = true; render(); break;
     case 'budget-cancel': S.budgetEdit = false; render(); break;
     case 'budget-save':
