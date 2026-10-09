@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.19.7';
+const APP_VERSION = '1.19.8';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1123,16 +1123,18 @@ function savingsSection(ym) {
     const kind = x => x.gross < 0 ? 'down' : 'net';
     const anyDown = months.some(x => x.gross < 0), anyProj = months.some(x => x.ym >= nowYm);
     const chip = (cls, label) => `<span><i class="${cls}"></i>${label}</span>`;
-    h += `<div class="sv-chart"><div class="sv-ch">Savings by month</div><div class="lgd">${[
+    // Heading right above the bars, with the number column labelled once. Legend underneath.
+    const legend = `<div class="lgd">${[
       chip('net', 'Net savings'), chip('sp', esc(spName)), chip('gr', 'Gross savings'), target ? chip('tg', 'Target') : '',
       anyDown ? chip('down', 'Spent more than earned') : '', anyProj ? chip('pj', 'Projected') : ''].join('')}</div>`;
+    h += `<div class="sv-chart"><div class="sv-ch sv-ch-row"><span>Savings by month</span><span>Gross</span></div>`;
     h += `<div class="sv-hist">` + months.map(x => {
       const proj = x.ym >= nowYm, k = kind(x), cut = x.gross > 0 ? Math.min(x.special, x.gross) : 0;
       return `<button class="sv-row${x.ym === ym ? ' cur' : ''}" data-act="goto-month" data-ym="${x.ym}" aria-label="${esc(monthLabel(x.ym))}: ${money(x.gross)} gross${x.special > 0.004 ? `, ${money(x.saved)} net after special spending` : ''}${proj ? ', projected' : ''}">
         <span class="sv-m">${esc(monthShort(x.ym))}</span>
         <span class="sp-track">${target ? `<i class="save-tgt" style="left:${pct(target)}%"></i>` : ''}<span class="save-fill ${k}${proj ? ' proj' : ''}" style="width:${pct(Math.abs(x.gross))}%"></span>${cut > 0.004 ? `<span class="save-sp ${k}${proj ? ' proj' : ''}" style="left:${pct(x.gross - cut)}%;width:${pct(cut)}%"></span>` : ''}</span>
         <span class="num sv-v${x.gross < 0 ? ' t-bad' : ''}">${proj ? '≈' : ''}${money(x.gross)}</span></button>`;
-    }).join('') + `</div></div>`;
+    }).join('') + `</div>${legend}</div>`;
   }
   return h + yearRecap(ym, since, nowYm, spName) + `</section>`;
 }
