@@ -1,9 +1,16 @@
 # Snap Ledger
 
-A personal expense ledger for iPhone that runs entirely on the phone. It reads card
-statement screenshots and PDF e-statements on-device, picks out each transaction,
-lets you review and approve them in a batch, and tracks spending by category and
-card against monthly budgets. Nothing is uploaded and no AI service is called.
+Your money, sorted, without the busywork. A personal expense ledger for iPhone that
+runs entirely on the phone.
+
+- **Convenient.** Snap a screenshot or PDF statement and it's read on the phone, matched
+  to the card and categorised. Bank alert emails (DBS, PayLah!, Citi) can come in on
+  their own.
+- **Insightful.** Your budget becomes what you can spend today. See where the month will
+  end, what each day did to it, and why you're short if you are.
+- **Robust.** Balances match your bank app. Card bills and transfers aren't counted as
+  spending, duplicates are caught, and money paid back isn't counted as income.
+- **Private.** Your data stays on the phone: no sign-up, no ads, no AI service.
 
 ## Put it online (GitHub Pages, free)
 
@@ -24,6 +31,19 @@ card against monthly budgets. Nothing is uploaded and no AI service is called.
    downloading the text reader. After that it works offline.
 
 Always open it from the home-screen icon. Its data is kept separately from Safari.
+
+## Choose how deep to go
+
+The first time you open it, pick how much you want from it. You can change this any
+time in **Settings > Your setup**, and nothing you've entered is lost.
+
+- **Track spending:** see where your money goes, by category and card.
+- **Stick to a budget:** plus monthly budgets and how much you can spend each day.
+- **Save and plan:** plus a savings target, balances that match your bank, transfers,
+  paybacks and where the month will end.
+
+A short checklist on the Ledger walks you through setting up what you picked, one
+step at a time, and ticks each step off as you do it.
 
 ## Set up your cards
 

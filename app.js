@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.19.8';
+const APP_VERSION = '1.20.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -48,9 +48,19 @@ const DEFAULT_CATS = [
   ['salary', 'Salary', 'inc'], ['cashback', 'Cashback & Rewards', 'inc'], ['otherinc', 'Other income', 'inc']
 ].map(([id, name, type]) => Object.assign({ id, name, type, budget: null }, id === 'special' ? { outside: true } : {}));
 
-function defaultSettings() {
-  return { v: 2, cur: 'S$', accounts: [], categories: clone(DEFAULT_CATS), rules: {} };
+function defaultSettings(lvl) {
+  return { v: 2, cur: 'S$', accounts: [], categories: clone(DEFAULT_CATS), rules: {}, level: lvl || 'budget' };
 }
+// How deep the app goes. track: where money goes. budget: plus monthly budgets and a daily amount.
+// plan: plus savings target, balances, transfers and paybacks. Ledgers from before levels get plan.
+const LEVELS = ['track', 'budget', 'plan'];
+const LEVEL_INFO = {
+  track: { name: 'Track spending', desc: 'See where your money goes. Snap screenshots or let bank emails fill it in, and see spending by category and card.', setup: 'Set up your cards · about 2 minutes' },
+  budget: { name: 'Stick to a budget', desc: 'Everything in Track, plus monthly budgets and how much you can spend each day.', setup: 'Set up cards and budgets · about 5 minutes' },
+  plan: { name: 'Save and plan', desc: 'Everything in Budget, plus a savings target, balances that match your bank, and where the month will end.', setup: 'Set up cards, budgets, income and balances · about 10 minutes' }
+};
+const level = () => { const s = st(); return s && LEVELS.includes(s.level) ? s.level : 'plan'; };
+const atLeast = l => LEVELS.indexOf(level()) >= LEVELS.indexOf(l);
 // Ledgers from before v2 get the Special Spending category once. Returns true if settings changed.
 function migrate(s) {
   if (!s || (s.v || 1) >= 2) return false;
@@ -67,7 +77,7 @@ function makeDemo() {
   let seed = 7;
   const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
   const pick = a => a[Math.floor(rnd() * a.length)];
-  const s = defaultSettings();
+  const s = defaultSettings('plan');
   s.accounts = [
     { id: 'demo-a', name: 'Rewards Visa', last4: '4821', kind: 'credit' },
     { id: 'demo-b', name: 'Cashback Mastercard', last4: '0937', kind: 'credit' },
@@ -246,8 +256,8 @@ function enterDemo() {
   S.demo = true;
   render();
 }
-function startLedger() {
-  S.real.settings = defaultSettings();
+function startLedger(lvl) {
+  S.real.settings = defaultSettings(lvl);
   S.real.months = {};
   S.demo = false;
   S.filterAcc = null; S.filterCat = null;
@@ -553,7 +563,8 @@ const catOptions = (type, sel) => cats().filter(c => c.type === type).map(c => `
 const accOptions = sel => accts().map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}${a.last4 ? ' ••' + esc(a.last4) : ''}</option>`).join('');
 const owerOptions = sel => OWERS.map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
 const pickOptions = sel => `<option value=""${sel ? '' : ' selected'}>Pick…</option>` + accOptions(sel);
-const kindOptions = (sel, withX) => [['exp', 'Expense'], ['ref', 'Refund'], ['inc', 'Income']].concat(withX ? [['xfer', 'Transfer']] : [], [['back', 'Payback']]).map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
+const kindOptions = (sel, withX) => [['exp', 'Expense'], ['ref', 'Refund'], ['inc', 'Income']].concat(withX ? [['xfer', 'Transfer']] : [], [['back', 'Payback']])
+  .filter(([v]) => v === sel || !(v === 'xfer' || v === 'back') || atLeast('plan')).map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
 const firstCat = type => (cats().find(c => c.type === type) || {}).id || '';
 
 /* ---------- render: chrome ---------- */
@@ -585,13 +596,14 @@ function renderBanner() {
   $('#banner').innerHTML = h;
 }
 function renderTabs() {
-  const t = [['ledger', 'Ledger'], ['stats', 'Stats'], ['import', 'Scan'], ['budget', 'Budget'], ['cards', 'Cards']];
+  const t = [['ledger', 'Ledger'], ['stats', 'Stats'], ['import', 'Scan'], ['budget', 'Budget'], ['cards', 'Cards']].filter(([id]) => id !== 'budget' || !st() || atLeast('budget'));
   $('#tabs').innerHTML = t.map(([id, l]) => id === 'import'
     ? `<button class="tab scan${S.tab === id ? ' on' : ''}" data-act="tab" data-tab="${id}" aria-current="${S.tab === id ? 'page' : 'false'}"><span class="disc">${ICON.scan}</span>${l}</button>`
     : `<button class="tab${S.tab === id ? ' on' : ''}" data-act="tab" data-tab="${id}" aria-current="${S.tab === id ? 'page' : 'false'}">${ICON[id]}${l}</button>`).join('');
   $('#fab').hidden = !(S.tab === 'ledger' && st());
 }
 function render() {
+  if (S.tab === 'budget' && st() && !atLeast('budget')) S.tab = 'ledger';
   renderTop(); renderBanner(); renderTabs();
   const v = $('#view');
   if (!st()) { v.innerHTML = '<div class="loading">Loading your ledger…</div>'; return; }
@@ -601,6 +613,46 @@ function onData() {
   if (S.tab === 'import' && S.imp.status !== 'idle') { renderBanner(); return; }
   if (S.tab === 'budget') { renderBanner(); return; }
   render();
+}
+
+/* ---------- getting set up ----------
+   A short checklist on the Ledger for your level. Each step ticks itself off from what's in the app,
+   and tapping one takes you there. Optional steps can be left. Hide puts it away for good. */
+function setupSteps() {
+  const steps = [
+    { id: 'cards', t: 'Add your cards', h: 'Each card with its last 4 digits, so screenshots land on the right one.', done: accts().length > 0 },
+    { id: 'first', t: 'Add your first transactions', h: "Screenshot your bank app's transaction list and add it in Scan, top of the list first. Or tap + to add one by hand.", done: allTx().some(t => t.type !== 'adj') }];
+  if (atLeast('budget')) steps.push({ id: 'budgets', t: 'Set monthly budgets', h: 'A monthly amount per category. Stats turns it into what you can spend each day.', done: budgetCats().length > 0 });
+  if (atLeast('plan')) {
+    steps.push({ id: 'income', t: 'Set your expected income', h: "Your savings target is what's left after your budgets, and Stats projects what you'll save.", done: st().expIncome > 0 });
+    steps.push({ id: 'balances', t: 'Add your balances', h: "Copy each card's balance from your bank app, so your totals always match.", done: Object.keys(balances()).length > 0, opt: true });
+  }
+  steps.push({ id: 'email', t: 'Bring in bank alert emails', h: 'DBS, PayLah! and Citi payments arrive without typing.', done: inboxOn(), opt: true });
+  return steps;
+}
+function setupCard() {
+  // Only for ledgers started with a level (or after changing it), not ones already in use before levels.
+  if (S.demo || !st() || !st().level || st().setupHidden) return '';
+  const steps = setupSteps(), left = steps.filter(x => !x.done);
+  if (!left.length) return '';
+  const req = steps.filter(x => !x.opt), reqDone = req.every(x => x.done), next = left[0];
+  return `<section class="setup"><div class="setup-h"><b>${reqDone ? "You're set up" : 'Get set up'}</b><span class="muted">${steps.filter(x => x.done).length} of ${steps.length} done</span><button class="btn ghost small" data-act="setup-hide">Hide</button></div>
+    ${steps.map(x => `<button class="setup-row${x.done ? ' done' : ''}" data-act="setup-go" data-id="${x.id}"${x.done ? ' disabled' : ''}>
+      <span class="setup-ck" aria-hidden="true">${x.done ? ICON.ok : ''}</span>
+      <span class="setup-tx"><span class="setup-t">${esc(x.t)}${x.opt && !x.done ? '<span class="setup-opt">Optional</span>' : ''}</span>${x === next ? `<span class="setup-hint">${esc(x.h)}</span>` : ''}</span>
+      ${x.done ? '' : CHEV}</button>`).join('')}
+    <p class="setup-foot">${esc(LEVEL_INFO[level()].name)}. <button class="lnk" data-act="setup-level">Go deeper or simpler</button></p></section>`;
+}
+function setupGo(id) {
+  if (id === 'cards') { S.tab = 'cards'; render(); if (!accts().length) openSheet({ kind: 'card', id: null, first: true }); return; }
+  if (id === 'first') { S.tab = 'import'; render(); window.scrollTo(0, 0); return; }
+  if (id === 'budgets' || id === 'income') {
+    S.tab = 'budget'; render(); window.scrollTo(0, 0);
+    if (id === 'income') { const f = $('#s-inc'); if (f) { f.scrollIntoView({ block: 'center' }); f.focus(); } }
+    return;
+  }
+  if (id === 'balances') { S.tab = 'cards'; render(); window.scrollTo(0, 0); return; }
+  if (id === 'email') { openSheet({ kind: 'settings' }); const sec = $('#ib-sec'); if (sec) sec.scrollIntoView({ block: 'start' }); }
 }
 
 /* ---------- views ---------- */
@@ -615,10 +667,11 @@ function vLedger() {
   const budgetTotal = bCats.reduce((s, c) => s + c.budget, 0);
   const sp = spendByCat(S.month);
   const left = budgetTotal - bCats.reduce((s, c) => s + (sp[c.id] || 0), 0);
-  let h = `<div class="summary">
+  let h = setupCard() + `<div class="summary">
     <div class="fig"><div class="k">Spent</div><div class="v">${money(tt.spent)}</div></div>
     <div class="fig"><div class="k">Income</div><div class="v good">${money(tt.income)}</div></div>
-    <div class="fig"><div class="k">Budget left</div><div class="v ${budgetTotal ? (left < 0 ? 'bad' : '') : ''}">${budgetTotal ? money(left) : '—'}</div></div>
+    ${budgetTotal || atLeast('budget') ? `<div class="fig"><div class="k">Budget left</div><div class="v ${budgetTotal ? (left < 0 ? 'bad' : '') : ''}">${budgetTotal ? money(left) : '—'}</div></div>`
+      : (() => { const nowYm = ymOf(todayISO()), d = S.month === nowYm ? +todayISO().slice(8, 10) : S.month < nowYm ? daysIn(S.month) : 0; return `<div class="fig"><div class="k">Per day</div><div class="v">${d ? money(tt.spent / d) : '—'}</div></div>`; })()}
   </div>${spec > 0.004 ? `<p class="sum-note">Plus <span class="num">${money(spec)}</span> outside the monthly budget.</p>` : ''}`;
   // Two filter rows: cards, then categories. The chosen chip moves next to "All" so it's always in view.
   const selFirst = (items, sel) => sel ? items.filter(x => x.id === sel).concat(items.filter(x => x.id !== sel)) : items;
@@ -675,7 +728,7 @@ const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentC
 const monthName = ym => new Date(ym + '-01T00:00:00').toLocaleDateString('en-SG', { month: 'long' });
 function vStats() {
   moneyDp = 0;
-  try { const P = monthPlan(S.month); return heroSection(P) + spendingSection(P) + savingsSection(S.month); }
+  try { const P = monthPlan(S.month); return heroSection(P) + spendingSection(P) + (atLeast('plan') ? savingsSection(S.month) : ''); }
   finally { moneyDp = null; }
 }
 // Where a month stands against its budget. Daily categories are paced evenly through the month.
@@ -813,8 +866,10 @@ function heroSection(P) {
   if (!P.totalB) {
     const total = Object.keys(P.sp).reduce((n, id) => n + (isOutside(id) ? 0 : P.sp[id]), 0);
     h += `<div class="hero-big"><span class="num">${money(total)}</span><small>spent</small></div>
-      <p class="hero-sub">Set monthly budgets to see whether you're on track and how much you can spend a day.</p>
-      <button class="btn small" data-act="tab" data-tab="budget" style="margin-top:12px">Set budgets</button>`;
+      ${atLeast('budget') ? `<p class="hero-sub">Set monthly budgets to see whether you're on track and how much you can spend a day.</p>
+      <button class="btn small" data-act="tab" data-tab="budget" style="margin-top:12px">Set budgets</button>`
+      : `<p class="hero-sub">Want to know how much you can spend each day? Add a budget whenever you're ready.</p>
+      <button class="btn small" data-act="setup-level" style="margin-top:12px">Try a budget</button>`}`;
     return h + heroLinks(ym) + `</section>`;
   }
   if (today) {
@@ -846,7 +901,7 @@ function heroSection(P) {
 // Savings for the month in one line, then the way into the day by day and the trend.
 function heroLinks(ym) {
   let save = '';
-  const since = savingsSince(), nowYm = ymOf(todayISO());
+  const since = atLeast('plan') && savingsSince(), nowYm = ymOf(todayISO());
   if (since && since <= ym) {
     const proj = ym >= nowYm, saved = (proj ? projectMonth(ym) : monthFlow(ym)).gross, target = saveTarget();
     const verb = proj ? (saved >= 0 ? 'Projected gross savings' : 'Projected gross shortfall') : (saved >= 0 ? 'Gross savings' : 'Gross shortfall');
@@ -1198,13 +1253,13 @@ function vBudget() {
     <p class="muted" style="font-size:13px;margin:0 0 12px">For bills that land once a month, like rent, tithe or utilities. They can be spread over several payments. Stats checks them against their own budget only and leaves them out of the daily pace. Tap a category to switch it between daily and monthly.</p>
     <div class="chips wrap" role="group" aria-label="Categories paid once a month">${inB.map(c => `<button class="chip${isMonthly(c) ? ' on' : ''}" data-act="toggle-monthly" data-id="${esc(c.id)}" aria-pressed="${isMonthly(c) ? 'true' : 'false'}">${esc(c.name)}</button>`).join('')}</div>
   </section>
-  <section class="sec"><div class="sec-h"><h2>Savings</h2></div>
+  ${atLeast('plan') ? `<section class="sec"><div class="sec-h"><h2>Savings</h2></div>
     <p class="muted" style="font-size:13px;margin:0 0 12px">Your savings target is your expected income minus your monthly budgets, so keeping to every budget hits it. Stats projects how much you'll keep this month and tracks each month against it.</p>
     <div class="bgt-edit">
       <label for="s-inc">Expected monthly income</label><input class="in num" id="s-inc" data-set="expIncome" inputmode="decimal" placeholder="Not set" value="${st().expIncome > 0 ? st().expIncome : ''}">
       <b class="bgt-total-l">Savings target</b><span class="num bgt-total" id="s-tgt-v">${esc(targetText())}</span>
     </div>
-  </section>
+  </section>` : ''}
   <section class="sec"><div class="sec-h"><h2>Outside the monthly budget</h2></div>
     <p class="muted" style="font-size:13px;margin:0 0 12px">For one-off or big spending like flights or furniture. It still counts toward your card and account balances, but not toward monthly budgets or the run rate. Stats shows a running total for the year. Tap a category to move it in or out.</p>
     <div class="chips wrap" role="group" aria-label="Categories outside the monthly budget">${expCats.map(c => `<button class="chip${c.outside ? ' on' : ''}" data-act="toggle-outside" data-id="${esc(c.id)}" aria-pressed="${c.outside ? 'true' : 'false'}">${esc(c.name)}</button>`).join('')}</div>
@@ -1227,8 +1282,10 @@ function vCards() {
   if (!list.length) {
     h += `<div class="empty"><b>Add your cards</b>Each transaction is tagged to a card so you can see spending per card.</div>`;
   }
+  // Balances, the month-end projection and what you're owed come with Save and plan.
+  const full = atLeast('plan');
   const ids = Object.keys(bals), ow = owedState(), toYou = round2(OWERS.reduce((n, [by]) => n + Math.max(0, ow[by].outstanding), 0));
-  if (ids.length) {
+  if (ids.length && full) {
     let assets = 0, owed = 0;
     ids.forEach(id => { const v = bals[id].v; if (isLiab(accById(id))) owed -= v; else assets += v; });
     const net = assets + toYou - owed;
@@ -1246,7 +1303,7 @@ function vCards() {
       </div>
       <p class="muted" style="font-size:12px;margin:8px 0 0">From the figures you entered from your bank apps, plus everything since. When you check your bank app, confirm or update each card below.</p></section>`;
   }
-  h += owedSection(ow);
+  if (full) h += owedSection(ow);
   h += list.map(a => {
     // Spending lives in Stats. Here each card shows what's in it, or what you owe on it.
     const b = bals[a.id], liab = isLiab(a);
@@ -1254,7 +1311,7 @@ function vCards() {
     return `<div class="card-tile ${esc(a.kind || 'credit')}">
       <span class="stripe"></span>
       <div class="ct-top"><span class="ct-name">${nm}</span><span class="ct-l4">${a.last4 ? '•••• ' + esc(a.last4) : ''}</span><button class="icon-btn ct-pen" data-act="edit-card" data-id="${esc(a.id)}" aria-label="Edit ${nm}">${ICON.edit}</button></div>
-      ${b ? `<div class="ct-k">${liab ? 'Owed' : 'Balance'}</div><div class="ct-amt${!liab && b.v < 0 ? ' t-bad' : ''}">${money(shown(a, b.v))}</div>
+      ${!full ? '' : b ? `<div class="ct-k">${liab ? 'Owed' : 'Balance'}</div><div class="ct-amt${!liab && b.v < 0 ? ' t-bad' : ''}">${money(shown(a, b.v))}</div>
       <div class="ct-meta${today ? ' ct-done' : ''}">${today ? `${ICON.ok}Checked with your bank today` : `Last checked with your bank ${esc(fmtDate(b.cp.d))}`}</div>
       <div class="ct-acts"><button class="btn small ct-ok" data-act="bal-ok" data-id="${esc(a.id)}" aria-label="Confirm balance: your bank app shows the same, so mark it as checked today">Confirm balance</button><button class="btn small" data-act="bal" data-id="${esc(a.id)}">Update balance</button></div>`
       : `<p class="ct-meta ct-none">No balance yet. Add one to track what you ${liab ? 'owe on this card' : 'have in this account'}.</p>
@@ -1895,7 +1952,7 @@ function reviewInbox() {
 const agoText = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(ms).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' }); };
 function inboxSettings(s) {
   const ib = S.inbox;
-  let h = '<div class="sub-h">Payments from email</div>';
+  let h = '<div class="sub-h" id="ib-sec">Payments from email</div>';
   if (S.demo) return h + '<p class="muted" style="font-size:13px">Start your ledger first, then connect your email here.</p>';
   if (inboxOn()) {
     const stuck = ib.error === 'key' || (ib.error === 'net' && (ib.fails || 0) >= 3);
@@ -1928,52 +1985,70 @@ function closeSheet() { if (S.sheet && S.sheet.kind === 'welcome') lsSet('snaple
 function isStandalone() { try { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; } catch (e) { return false; } }
 function isIOS() { return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
 const SHARE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/></svg>';
+// The pitch, then how deep you want to go. Shown on first open, and from Settings to change the level.
+const CHECK_SVG = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6.2l2.3 2.3 4.7-5"/></svg>';
 function welcomeSteps() {
   const steps = [{
-    icon: '<img src="icons/cards-180.png" alt="">',
-    title: 'Welcome to Snap Ledger',
-    body: `<p>Turn screenshots from your banking apps into a tidy expense ledger, see at a glance whether you're keeping to your budget, and keep your balances matching your bank.</p><p class="muted">Everything is read and stored on this phone. Nothing is uploaded.</p>`
+    icon: '<img src="icons/cards-180.png" alt="">', app: true,
+    title: 'Your money, sorted. Without the busywork.',
+    body: `<ul class="wl-pp">
+        <li><s>Typing in every expense</s><b>${CHECK_SVG}Snap a screenshot, or let your bank's alert emails fill it in</b></li>
+        <li><s>Finding out you overspent at month end</s><b>${CHECK_SVG}Know what you can spend today</b></li>
+        <li><s>Totals that never match your bank</s><b>${CHECK_SVG}Every dollar ties back to your balance</b></li>
+      </ul><p class="muted wl-c">Private by design. Your data stays on this phone: no sign-up, no ads.</p>`
+  }, {
+    icon: ICON.scan,
+    title: 'Snap, don\'t type',
+    body: `<div class="wl-mock"><div class="wm-h"><span>Rewards Visa ••4821</span><span class="wm-ok">${CHECK_SVG}Card matched</span></div>
+        <div class="wm-r"><span>GrabFood</span><span class="wm-c">Food</span><span class="num">S$12.50</span></div>
+        <div class="wm-r"><span>FairPrice</span><span class="wm-c">Groceries</span><span class="num">S$43.20</span></div>
+        <div class="wm-r"><span>Bus/MRT</span><span class="wm-c">Transport</span><span class="num">S$2.17</span></div></div>
+      <p>Screenshot your bank app, or a PDF statement. Snap Ledger reads it on this phone, picks the card, guesses each category and remembers your fixes.</p>
+      <p>Bank alert emails can come in on their own, so most payments need no typing at all.</p>`
+  }, {
+    icon: ICON.stats,
+    title: 'Know what you can spend today',
+    body: `<div class="wl-mock"><div class="wm-k">Today</div><div class="wm-big"><span class="num">S$33</span> allowance today</div>
+        <div class="track"><div class="fill good" style="width:36%"></div></div><div class="wm-s"><span>S$12 spent so far</span><span class="t-good">S$21 left</span></div>
+        <div class="wm-cheer">★ 4 days in a row within your allowance</div></div>
+      <p>Your budget becomes a daily amount that adjusts as you go, with a cheer when you're on a roll.</p>
+      <p>See where the month will end, what each day did to it, and why you're short if you are.</p>`
+  }, {
+    icon: ICON.wallet,
+    title: 'Every dollar accounted for',
+    body: `<div class="wl-mock"><div class="wm-h"><span>Rewards Visa ••4821</span></div><div class="wm-k">Owed</div><div class="wm-big"><span class="num">S$1,040.40</span></div>
+        <div class="wm-ok">${CHECK_SVG}Checked with your bank today</div></div>
+      <ul class="wl-ticks"><li>${CHECK_SVG}Balances match your bank app, with one tap to confirm</li><li>${CHECK_SVG}Card bills and transfers are never counted as spending</li>
+        <li>${CHECK_SVG}Duplicates are caught across screenshots and emails</li><li>${CHECK_SVG}Money friends pay back isn't counted as income</li></ul>`
   }];
   if (isIOS() && !isStandalone()) steps.push({
     icon: SHARE_SVG,
-    title: 'Add it to your Home Screen first',
+    title: 'Add it to your Home Screen',
     body: `<ol><li>Tap the <b>Share</b> button in Safari.</li><li>Choose <b>Add to Home Screen</b>.</li><li>Open Snap Ledger from the new icon and carry on there.</li></ol><p class="muted">The Home Screen app keeps its own data, separate from Safari, so start your ledger there.</p>`
   });
-  steps.push({
-    icon: ICON.cards,
-    title: 'Add your cards',
-    body: `<p>In <b>Cards</b>, add each card with its last 4 digits. This is how the app tells which card a screenshot is from.</p><ul><li>If a card's app shows more than 4 digits, enter the last 4.</li><li>For e-wallets, choose <b>E-wallet</b> and leave the digits empty.</li></ul>`
-  });
-  steps.push({
-    icon: ICON.scan,
-    title: 'Scan your transactions',
-    body: `<ul><li>Screenshot the transaction list in your bank app. Scroll and take more if it's long.</li><li>In <b>Scan</b>, add them all at once, top of the list first. Mixing cards is fine.</li><li>Check each line, fix anything off, then tap <b>Add</b>. Balance lines are left out for you. Bill payments and top-ups come in as transfers once you track balances.</li></ul><p class="muted">Category fixes are remembered for next time.</p>`
-  });
-  steps.push({
-    icon: ICON.budget,
-    title: 'Set budgets and track',
-    body: `<p>Set a monthly amount per category in <b>Budget</b>. <b>Stats</b> then leads with what you can spend today, and shows each category as <b class="t-good">On track</b>, <b class="t-warn">At risk</b> (ahead of today's plan) or <b class="t-bad">Over</b>.</p><ul><li>Tap the month or any category to see it day by day and over the last six months.</li><li>Mark bills that land once a month, like rent or utilities, as <b>monthly</b> in the Budget tab so they don't throw off the daily pace.</li><li>Big one-offs like flights go in <b>Special Spending</b>, which sits outside the monthly budget and gets a running total for the year.</li><li>Set your expected income in the Budget tab. Your savings target is what's left after your budgets, and Stats projects what you'll save.</li><li>Rename, reorder or add categories in Settings.</li></ul>`
-  });
-  steps.push({
-    icon: ICON.wallet,
-    title: 'Keep balances matched',
-    body: `<p>Optional. In <b>Cards</b>, tap <b>Add balance</b> and copy the figure from your bank app. Spending, income and transfers then move it.</p><ul><li>Card bills and wallet top-ups are transfers between your own accounts, so they don't count as spending.</li><li>Now and then, tap <b>Update</b> on a card and enter the bank's figure. If it's off, a correction entry makes it match.</li><li>Paid for work or friends? Set <b>Paid back by</b> on the expense (all of it, or their part of a split bill). It won't count as your spending. Record each payback against what it pays for, one claim or several.</li></ul><p class="muted">Your data lives only on this phone, so use Settings → Back up now from time to time.</p>`
-  });
+  steps.push({ pick: true, icon: ICON.budget, title: 'How deep do you want to go?' });
   return steps;
+}
+function levelPicker(sel) {
+  return `<div class="lv" role="radiogroup" aria-label="How deep to go">${LEVELS.map(l => `<button class="lv-opt${l === sel ? ' on' : ''}" data-act="wl-pick" data-id="${l}" role="radio" aria-checked="${l === sel}">
+      <span class="lv-dot" aria-hidden="true"></span><span class="lv-txt"><span class="lv-t">${esc(LEVEL_INFO[l].name)}${l === 'budget' ? '<span class="lv-tag">Good place to start</span>' : ''}</span>
+      <span class="lv-d">${esc(LEVEL_INFO[l].desc)}</span><span class="lv-m">${esc(LEVEL_INFO[l].setup)}</span></span></button>`).join('')}</div>
+    <p class="muted wl-c">You can go deeper or simpler any time in Settings.</p>`;
 }
 function renderWelcome(el, s) {
   const steps = welcomeSteps();
   const i = Math.max(0, Math.min(steps.length - 1, s.step || 0)), stp = steps[i], last = i === steps.length - 1;
-  const startLabel = S.demo ? 'Start my ledger' : 'Done';
+  if (stp.pick && !s.pick) s.pick = S.demo ? 'budget' : level();
+  const startLabel = S.demo ? 'Start my ledger' : 'Save';
   el.innerHTML = `<div class="grab"></div>
     <div class="wl">
-      <div class="wl-icon${i === 0 ? ' app' : ''}">${stp.icon}</div>
+      <div class="wl-icon${stp.app ? ' app' : ''}">${stp.icon}</div>
       <p class="wl-step">${i + 1} of ${steps.length}</p>
       <h2>${stp.title}</h2>
-      <div class="wl-body">${stp.body}</div>
+      <div class="wl-body">${stp.pick ? levelPicker(s.pick) : stp.body}</div>
       <div class="wl-dots" aria-hidden="true">${steps.map((_, k) => `<span class="${k === i ? 'on' : ''}"></span>`).join('')}</div>
     </div>
-    <div class="sheet-actions">${i ? '<button class="btn" data-act="wl-back">Back</button>' : '<button class="btn" data-act="wl-skip">Skip</button>'}${last ? `<button class="btn primary" data-act="wl-start">${startLabel}</button>` : '<button class="btn primary" data-act="wl-next">Next</button>'}</div>
+    <div class="sheet-actions">${i ? '<button class="btn" data-act="wl-back">Back</button>' : S.demo ? '<button class="btn" data-act="wl-tolast">Skip</button>' : '<button class="btn" data-act="wl-skip">Close</button>'}${last ? `<button class="btn primary" data-act="wl-start">${startLabel}</button>` : '<button class="btn primary" data-act="wl-next">Next</button>'}</div>
     ${last && S.demo ? '<button class="btn ghost wide" data-act="wl-skip" style="margin-top:6px">Look around the example first</button>' : ''}`;
 }
 function renderSheet() {
@@ -2012,7 +2087,7 @@ function renderSheet() {
       <p class="muted" id="f-b-note" style="font-size:13px;margin:6px 0 12px"${isB ? '' : ' hidden'}>Tick what this pays for, or tick nothing to clear the oldest first. Paybacks aren't income.</p>
       <label class="field" id="f-to-w"${isX ? '' : ' hidden'}><span>To</span><select class="in" id="f-to">${accOptions(defTo)}</select></label>
       <p class="muted" id="f-x-note" style="font-size:13px;margin-top:-4px"${isX ? '' : ' hidden'}>A transfer moves money between your own accounts, like paying a card bill or topping up a wallet. It isn't spending.</p>
-      <div id="f-ow-w"${k === 'exp' ? '' : ' hidden'}>
+      <div id="f-ow-w"${k === 'exp' && (atLeast('plan') || (t && t.owed)) ? '' : ' hidden'}>
         <div class="row2"><label class="field"><span>Paid back by</span><select class="in" id="f-ow"><option value="">Nobody, it's mine</option>${owerOptions(t && t.owed ? t.owed.by : '')}</select></label>
         <label class="field" id="f-owa-w"${t && t.owed ? '' : ' hidden'}><span>They owe</span><input class="in num" id="f-owa" inputmode="decimal" placeholder="All of it" value="${t && t.owed ? t.owed.amt.toFixed(2) : ''}"></label></div>
         <p class="muted" id="f-ow-note" style="font-size:13px;margin-top:-4px"${t && t.owed ? '' : ' hidden'}></p>
@@ -2059,6 +2134,9 @@ function renderSheet() {
       <button class="mv" data-act="move-cat" data-id="${esc(c.id)}" data-k="-1" aria-label="Move ${esc(c.name)} up"${i === 0 ? ' disabled' : ''}>${ICON.up}</button><button class="mv" data-act="move-cat" data-id="${esc(c.id)}" data-k="1" aria-label="Move ${esc(c.name)} down"${i === arr.length - 1 ? ' disabled' : ''}>${ICON.down}</button>
       <button class="btn small" data-act="del-cat" data-id="${esc(c.id)}">Remove</button></div>`;
     el.innerHTML = `<div class="grab"></div><h2>Settings</h2>
+      ${S.demo ? '' : `<div class="sub-h">Your setup</div>
+      <div class="kv"><span>${esc(LEVEL_INFO[level()].name)}</span><span><button class="btn ghost small" data-act="setup-level">Change</button></span></div>
+      <p class="muted" style="font-size:13px;margin:0">${esc(LEVEL_INFO[level()].desc)}</p>`}
       <div class="sub-h">Your data</div>
       <div class="kv"><span>Stored</span><span>${S.demo ? 'Example data, not saved' : S.mode === 'device' ? 'On this iPhone only' : 'Not being saved'}</span></div>
       <div class="kv"><span>Transactions</span><span class="num">${all}</span></div>
@@ -2165,7 +2243,9 @@ function saveCard() {
   const s = S.sheet;
   if (s.id) Object.assign(accById(s.id), { name, last4: l4, kind, match });
   else st().accounts.push({ id: newId(), name, last4: l4, kind, match });
-  saveSettings(); closeSheet(); render(); toast(s.id ? 'Card updated.' : 'Card added.');
+  saveSettings(); closeSheet();
+  if (s.first) S.tab = 'ledger';
+  render(); toast(s.id ? 'Card updated.' : 'Card added.');
 }
 
 /* ---------- export ---------- */
@@ -2312,9 +2392,20 @@ document.addEventListener('click', e => {
     case 'wl-next': S.sheet.step = (S.sheet.step || 0) + 1; renderSheet(); $('#sheet').scrollTop = 0; break;
     case 'wl-back': S.sheet.step = Math.max(0, (S.sheet.step || 0) - 1); renderSheet(); $('#sheet').scrollTop = 0; break;
     case 'wl-skip': closeSheet(); break;
-    case 'wl-start': { const demo = S.demo; closeSheet(); if (demo) startLedger(); break; }
+    case 'wl-tolast': S.sheet.step = 99; renderSheet(); $('#sheet').scrollTop = 0; break;
+    case 'wl-pick': S.sheet.pick = id; renderSheet(); break;
+    case 'wl-start': {
+      const demo = S.demo, pick = (S.sheet && S.sheet.pick) || 'budget';
+      closeSheet();
+      if (demo) startLedger(pick);
+      else if (pick !== level()) { st().level = pick; st().setupHidden = false; saveSettings(); render(); toast(`Switched to ${LEVEL_INFO[pick].name}.`); }
+      break;
+    }
     case 'wl-open': openSheet({ kind: 'welcome', step: 0 }); break;
-    case 'start': startLedger(); break;
+    case 'setup-level': openSheet({ kind: 'welcome', step: 99 }); break;
+    case 'setup-go': setupGo(id); break;
+    case 'setup-hide': st().setupHidden = true; saveSettings(); render(); toast('Hidden. Settings has everything if you need it later.'); break;
+    case 'start': openSheet({ kind: 'welcome', step: 99 }); break;
     case 'filter-acc': S.filterAcc = id && id !== S.filterAcc ? id : null; render(); break;
     case 'filter-cat': S.filterCat = id && id !== S.filterCat ? id : null; render(); break;
     case 'drill-cat': S.filterCat = id; S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0); break;
@@ -2465,7 +2556,7 @@ function onField(e, isChange) {
   if (el.id === 'f-kind' && isChange) {
     const x = el.value === 'xfer', bk = el.value === 'back';
     $('#f-to-w').hidden = !x; $('#f-x-note').hidden = !x; $('#f-cat-w').hidden = x || bk; $('#f-acc-l').textContent = x ? 'From' : bk ? 'Into' : 'Card';
-    $('#f-by-w').hidden = !bk; $('#f-b-note').hidden = !bk; $('#f-set-w').hidden = !bk; $('#f-ow-w').hidden = el.value !== 'exp';
+    $('#f-by-w').hidden = !bk; $('#f-b-note').hidden = !bk; $('#f-set-w').hidden = !bk; $('#f-ow-w').hidden = el.value !== 'exp' || !atLeast('plan');
     if (bk) { $('#f-set').innerHTML = settleList($('#f-by').value, null); }
     const sg = $('#f-sugg'); if (sg) sg.hidden = x || bk;
     if (bk) return;
