@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.19.2';
+const APP_VERSION = '1.19.4';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1070,12 +1070,15 @@ function savingsSection(ym) {
   if (since > ym) return head + `<p class="sv-note" style="margin-top:0">No income recorded for ${esc(monthLabel(ym))}.</p></section>`;
   const mine = m => m >= nowYm ? projectMonth(m) : monthFlow(m);
   const cur = mine(ym), saved = cur.gross, hit = target && saved >= target - 0.004, spName = specialName();
-  let h = head + `<div class="sv-top"><div class="hero-big${saved < 0 ? ' t-bad' : ''}"><span class="num">${money(Math.abs(saved))}</span><small>${saved >= 0 ? 'gross savings' : 'gross shortfall'}${ahead ? ', projected' : ''}</small></div>${target && saved > 0 ? `<span class="sv-pct num${hit ? ' t-good' : ''}">${Math.round(saved / target * 100)}%</span>` : ''}</div>`;
+  // Green on or above target. Short is amber while it's this month's projection (still fixable),
+  // and red once a month has ended short, or whenever spending is more than income.
+  const tone = !target ? '' : hit ? 'good' : saved < 0 || !ahead ? 'bad' : 'warn';
+  let h = head + `<div class="sv-top"><div class="hero-big${saved < 0 ? ' t-bad' : ''}"><span class="num">${money(Math.abs(saved))}</span><small>${saved >= 0 ? 'gross savings' : 'gross shortfall'}${ahead ? ', projected' : ''}</small></div>${target && saved > 0 ? `<span class="sv-pct num${tone ? ' t-' + tone : ''}">${Math.round(saved / target * 100)}%</span>` : ''}</div>`;
   if (ym === nowYm) h += `<p class="sv-delta">${deltaTag(projDelta())}</p>`;
   if (target) {
     const fillPct = Math.max(0, Math.min(100, saved / target * 100));
-    h += `<div class="track lg sv-bar${hit ? '' : ' short'}" style="margin-top:12px"><div class="fill ${hit ? 'good' : saved < 0 ? 'bad' : ''}" style="width:${fillPct.toFixed(1)}%"></div></div>
-      <div class="sv-cap">${hit ? `<span class="t-good">${saved - target > 0.5 ? `${money(saved - target)} above target` : 'On target'}</span>` : `<span class="t-warn">${money(target - saved)} short of target</span>`}</div>`;
+    h += `<div class="track lg" style="margin-top:12px"><div class="fill ${tone}${ahead ? ' proj' : ''}" style="width:${fillPct.toFixed(1)}%"></div></div>
+      <div class="sv-cap"><span class="t-${tone}">${hit ? (saved - target > 0.5 ? `${money(saved - target)} above target` : 'On target') : `${money(target - saved)} short of target`}</span></div>`;
   }
   // How gross savings is worked out, then straight below it, how that compares with the target.
   const everyday = round2(cur.sp - cur.special);
@@ -1105,7 +1108,7 @@ function savingsSection(ym) {
   }
   // Net: what's left after special spending, the figure that matches your balances.
   h += `<div class="sv-split">${cur.special > 0.004
-      ? `<button class="sv-sp" data-act="drill-special" data-ym="${esc(ym)}" aria-label="See ${esc(spName)} in ${esc(monthLabel(ym))}"><span>${esc(spName)}${ym === nowYm ? ' this month' : ''}</span><span class="num">−${money(cur.special)}${CHEV}</span></button>`
+      ? `<button class="sv-sp" data-act="sp-sheet" data-y="${esc(ym.slice(0, 4))}" aria-label="See all ${esc(spName)} in ${esc(ym.slice(0, 4))}"><span>${esc(spName)}${ym === nowYm ? ' this month' : ''}</span><span class="num">−${money(cur.special)}</span>${CHEV}</button>`
       : `<div><span>${esc(spName)}${ym === nowYm ? ' this month' : ''}</span><span class="num">${money(0)}</span></div>`}
     <div class="net"><span>Net savings${ahead ? ', projected' : ''}</span><span class="num">${money(cur.saved)}</span></div></div>`;
   // Last six months, this one projected.
@@ -1122,12 +1125,12 @@ function savingsSection(ym) {
     const chip = (cls, label) => `<span><i class="${cls}"></i>${label}</span>`;
     h += `<div class="sv-chart"><div class="sv-ch">Savings by month</div><div class="lgd">${[
       chip('net', 'Net savings'), chip('sp', esc(spName)), chip('gr', 'Gross savings'), target ? chip('tg', 'Target') : '',
-      anyDown ? chip('down', 'Spent more than earned') : '', anyProj ? '<span class="lgd-t">≈ projected</span>' : ''].join('')}</div>`;
+      anyDown ? chip('down', 'Spent more than earned') : '', anyProj ? chip('pj', 'Projected') : ''].join('')}</div>`;
     h += `<div class="sv-hist">` + months.map(x => {
       const proj = x.ym >= nowYm, k = kind(x), cut = x.gross > 0 ? Math.min(x.special, x.gross) : 0;
       return `<button class="sv-row${x.ym === ym ? ' cur' : ''}" data-act="goto-month" data-ym="${x.ym}" aria-label="${esc(monthLabel(x.ym))}: ${money(x.gross)} gross${x.special > 0.004 ? `, ${money(x.saved)} net after special spending` : ''}${proj ? ', projected' : ''}">
         <span class="sv-m">${esc(monthShort(x.ym))}</span>
-        <span class="sp-track">${target ? `<i class="save-tgt" style="left:${pct(target)}%"></i>` : ''}<span class="save-fill ${k}${proj ? ' proj' : ''}" style="width:${pct(Math.abs(x.gross))}%"></span>${cut > 0.004 ? `<span class="save-sp ${k}" style="left:${pct(x.gross - cut)}%;width:${pct(cut)}%"></span>` : ''}</span>
+        <span class="sp-track">${target ? `<i class="save-tgt" style="left:${pct(target)}%"></i>` : ''}<span class="save-fill ${k}${proj ? ' proj' : ''}" style="width:${pct(Math.abs(x.gross))}%"></span>${cut > 0.004 ? `<span class="save-sp ${k}${proj ? ' proj' : ''}" style="left:${pct(x.gross - cut)}%;width:${pct(cut)}%"></span>` : ''}</span>
         <span class="num sv-v${x.gross < 0 ? ' t-bad' : ''}">${proj ? '≈' : ''}${money(x.gross)}</span></button>`;
     }).join('') + `</div></div>`;
   }
@@ -1149,25 +1152,30 @@ function yearRecap(ym, since, nowYm, spName) {
   const thisYear = y === nowYm.slice(0, 4), lines = oc.length > 1 ? oc.filter(c => Math.abs(byCat[c.id] || 0) > 0.004).map(c => [c.name, byCat[c.id], c.id]) : [[spName, special, '']];
   return `<div class="sv-year"><div class="sv-ch">${esc(y)}${thisYear ? ' so far' : ''}</div><div class="sv-split" style="margin-top:4px;border-top:0;padding-top:0">
     <div><span>Gross savings</span><span class="num">${money(g)}</span></div>
-    ${lines.map(([name, v, id]) => {
-      const open = S.spOpen === (id || 'all'), list = spMonths(y, since, nowYm, id);
-      return Math.abs(v) < 0.005 ? `<div><span>${esc(name)}</span><span class="num">${money(0)}</span></div>`
-        : `<button class="sv-sp${open ? ' open' : ''}" data-act="sp-toggle" data-id="${esc(id || 'all')}" aria-expanded="${open}"><span>${esc(name)}</span><span class="num">−${money(v)}${CHEV}</span></button>
-        ${open ? `<div class="sv-spm">${list.map(([mym, mv]) => `<button class="sv-sp" data-act="drill-special" data-ym="${mym}"${id ? ` data-cat="${esc(id)}"` : ''}><span>${esc(monthName(mym))}</span><span class="num">−${money(mv)}${CHEV}</span></button>`).join('')}</div>` : ''}`;
-    }).join('')}
+    ${lines.map(([name, v]) => Math.abs(v) < 0.005 ? `<div><span>${esc(name)}</span><span class="num">${money(0)}</span></div>`
+      : `<button class="sv-sp" data-act="sp-sheet" data-y="${esc(y)}" aria-label="See all ${esc(name)} in ${esc(y)}"><span>${esc(name)}</span><span class="num">−${money(v)}</span>${CHEV}</button>`).join('')}
     <div class="net"><span>Net savings</span><span class="num">${money(n)}</span></div></div>
     ${thisYear ? `<p class="sv-note" style="margin-top:2px">${esc(monthName(nowYm))} counted as projected.</p>` : ''}</div>`;
 }
-// Months of a year with special spending (one category, or all of them), newest first.
-function spMonths(y, since, nowYm, id) {
-  const out = [];
+// Pop-up: every special spending entry in a year, newest month first, each one tappable to edit.
+function specialSheet(el, s) {
+  const y = s.y, nowYm = ymOf(todayISO()), oc = cats().filter(c => c.type === 'exp' && c.outside), name = specialName(), groups = [];
+  let total = 0;
   for (let m = 12; m >= 1; m--) {
     const mym = y + '-' + pad(m);
     if (mym > nowYm) continue;
-    const v = monthTx(mym).reduce((n, t) => n + (t.type === 'exp' && isOutside(t.cat) && (!id || t.cat === id) ? spendAmt(t) : 0), 0);
-    if (Math.abs(v) > 0.004) out.push([mym, round2(v)]);
+    const list = monthTx(mym).filter(t => t.type === 'exp' && isOutside(t.cat)).sort((a, b) => b.d.localeCompare(a.d) || (b.t || 0) - (a.t || 0));
+    if (!list.length) continue;
+    const sum = round2(list.reduce((n, t) => n + spendAmt(t), 0)); total += sum;
+    groups.push({ mym, sum, list });
   }
-  return out;
+  const row = t => `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}"><span class="tx-cat">${esc(fmtDate(t.d))}</span>
+    <span class="tx-main"><span class="tx-m">${esc(t.m || catName(t.cat))}</span><span class="tx-acc">${oc.length > 1 ? esc(catName(t.cat)) + ' · ' : ''}${esc(accShort(t.acc))}</span></span>
+    <span class="tx-amt">${money(spendAmt(t))}</span></button>`;
+  el.innerHTML = `<div class="grab"></div><h2>${esc(name)} · ${esc(y)}</h2>
+    <p class="muted" style="margin-top:-8px">${groups.length ? `<span class="num">${money(total, 0)}</span> in ${groups.length} month${groups.length === 1 ? '' : 's'}. It comes out of net savings, not gross savings or your target.` : `Nothing in ${esc(y)} yet.`}</p>
+    ${groups.map(g => `<div class="day sp-day"><div class="day-h"><span>${esc(monthName(g.mym))}</span><span class="num">${money(g.sum, 0)}</span></div>${g.list.map(row).join('')}</div>`).join('')}
+    <div class="sheet-actions" style="margin-top:12px"><button class="btn wide" data-act="close-sheet">Close</button></div>`;
 }
 // What special spending is called: the one category outside the budget, or a general name.
 function specialName() { const oc = cats().filter(c => c.type === 'exp' && c.outside); return oc.length === 1 ? oc[0].name : 'Special spending'; }
@@ -2036,6 +2044,8 @@ function renderSheet() {
       <div class="sheet-actions">${b ? '<button class="btn danger" data-act="bal-stop">Stop tracking</button>' : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="bal-save">Save</button></div>`;
   } else if (s.kind === 'welcome') {
     renderWelcome(el, s);
+  } else if (s.kind === 'special') {
+    specialSheet(el, s);
   } else if (s.kind === 'stat') {
     statSheet(el, s);
   } else if (s.kind === 'settings') {
@@ -2364,12 +2374,7 @@ document.addEventListener('click', e => {
       break;
     }
     case 'goto-savings': { const el = document.getElementById('savings'); if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -70); } break; }
-    case 'drill-special': {
-      const oc = cats().filter(c => c.type === 'exp' && c.outside);
-      S.month = b.dataset.ym; S.filterCat = b.dataset.cat || (oc.length === 1 ? oc[0].id : null); S.filterAcc = null; S.tab = 'ledger'; render(); window.scrollTo(0, 0);
-      break;
-    }
-    case 'sp-toggle': { S.spOpen = S.spOpen === id ? null : id; const y = window.scrollY; render(); window.scrollTo(0, y); break; }
+    case 'sp-sheet': openSheet({ kind: 'special', y: b.dataset.y }); break;
     case 'budget-edit': S.budgetEdit = true; render(); break;
     case 'budget-cancel': S.budgetEdit = false; render(); break;
     case 'budget-save':
