@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.19.0';
+const APP_VERSION = '1.19.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -675,7 +675,7 @@ const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentC
 const monthName = ym => new Date(ym + '-01T00:00:00').toLocaleDateString('en-SG', { month: 'long' });
 function vStats() {
   moneyDp = 0;
-  try { const P = monthPlan(S.month); return heroSection(P) + spendingSection(P) + savingsSection(S.month) + specialYear(S.month); }
+  try { const P = monthPlan(S.month); return heroSection(P) + spendingSection(P) + savingsSection(S.month); }
   finally { moneyDp = null; }
 }
 // Where a month stands against its budget. Daily categories are paced evenly through the month.
@@ -1069,15 +1069,16 @@ function savingsSection(ym) {
   }
   if (since > ym) return head + `<p class="sv-note" style="margin-top:0">No income recorded for ${esc(monthLabel(ym))}.</p></section>`;
   const mine = m => m >= nowYm ? projectMonth(m) : monthFlow(m);
-  const cur = mine(ym), saved = cur.gross, hit = target && saved >= target - 0.004;
+  const cur = mine(ym), saved = cur.gross, hit = target && saved >= target - 0.004, spName = specialName();
   let h = head + `<div class="sv-top"><div class="hero-big${saved < 0 ? ' t-bad' : ''}"><span class="num">${money(Math.abs(saved))}</span><small>${saved >= 0 ? 'gross savings' : 'gross shortfall'}${ahead ? ', projected' : ''}</small></div>${target && saved > 0 ? `<span class="sv-pct num${hit ? ' t-good' : ''}">${Math.round(saved / target * 100)}%</span>` : ''}</div>`;
   if (ym === nowYm) h += `<p class="sv-delta">${deltaTag(projDelta())}</p>`;
   if (target) h += `<div class="track lg" style="margin-top:12px"><div class="fill ${hit ? 'good' : saved < 0 ? 'bad' : ''}" style="width:${Math.max(0, Math.min(100, saved / target * 100)).toFixed(1)}%"></div></div>`;
-  const everyday = round2(cur.sp - cur.special), spName = specialName();
-  h += `<p class="sv-note">Before special spending: ${ahead ? `${cur.incExpected ? 'expected income' : 'income'} <span class="num">${money(cur.inc)}</span>, less <span class="num">${money(everyday)}</span> ${cur.paced ? `if you spend your <span class="num">${money(cur.paced.daily0)}</span> daily budget each day from today` : budgetCats().length ? 'if every budget is used up' : 'spent so far'}.` : `income <span class="num">${money(cur.inc)}</span>, less spending of <span class="num">${money(everyday)}</span>.`}${target && hit ? (ahead ? ' That reaches your target.' : ' Target hit.') : ''}</p>`;
-  // Net: what's left after special spending, the figure that matches your balances.
-  h += `<div class="sv-split"><div><span>${esc(spName)}${ym === nowYm ? ' this month' : ''}</span><span class="num">${cur.special > 0.004 ? '−' + money(cur.special) : money(0)}</span></div>
-    <div class="net"><span>Net savings${ahead ? ', projected' : ''}</span><span class="num">${money(cur.saved)}</span></div></div>`;
+  // How gross savings is worked out, then straight below it, how that compares with the target.
+  const everyday = round2(cur.sp - cur.special);
+  h += `<p class="sv-note">${ahead
+    ? `${cur.incExpected ? 'Expected income' : 'Income'} <span class="num">${money(cur.inc)}</span> − projected spending <span class="num">${money(everyday)}</span> ${cur.paced ? 'if you spend your daily budget' : budgetCats().length ? 'if every budget is used up' : 'so far'}, before special spending.`
+    : `Income <span class="num">${money(cur.inc)}</span> − spending <span class="num">${money(everyday)}</span>, before special spending.`}</p>`;
+  if (target && hit) h += `<p class="sv-why">${saved - target > 0.5 ? `That's <span class="num">${money(saved - target)}</span> above your target.` : "That's right on your target."}</p>`;
   if (target && ahead && !hit) {
     // Why the projection falls short of the target, and what would make it up.
     const sp = spendByCat(ym), b = budgetCats(), gap = target - saved, P = cur.paced;
@@ -1096,8 +1097,11 @@ function savingsSection(ym) {
       why = listNames([over.length ? `${esc(listNames(over.map(c => c.name)))} going over budget` : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
       fix = room < gap - 0.004 ? `Even with no more spending, you'd save <span class="num">${money(saved + room)}</span>.` : `To hit the target, spend <span class="num">${money(gap)}</span> less than your budgets allow.`;
     }
-    h += `<p class="sv-note">You're <span class="num">${money(gap)}</span> short of your target${why ? ` because of ${why}` : ''}. ${fix}</p>`;
+    h += `<p class="sv-why">You're <span class="num">${money(gap)}</span> short of your target${why ? ` because of ${why}` : ''}. ${fix}</p>`;
   }
+  // Net: what's left after special spending, the figure that matches your balances.
+  h += `<div class="sv-split"><div><span>${esc(spName)}${ym === nowYm ? ' this month' : ''}</span><span class="num">${cur.special > 0.004 ? '−' + money(cur.special) : money(0)}</span></div>
+    <div class="net"><span>Net savings${ahead ? ', projected' : ''}</span><span class="num">${money(cur.saved)}</span></div></div>`;
   // Last six months, this one projected.
   const months = []; for (let k = -5; k <= 0; k++) { const m = addMonths(ym, k); if (m >= since) months.push(Object.assign(mine(m), { ym: m })); }
   const past = []; for (let m = since; m < nowYm && m <= ym; m = addMonths(m, 1)) past.push(monthFlow(m));
@@ -1105,60 +1109,46 @@ function savingsSection(ym) {
   if (streak >= 2) h += `<p class="save-cheer">${target ? `Target hit ${streak} months in a row.` : `${streak} months in a row with money saved.`}</p>`;
   if (months.length > 1) {
     // Each bar is gross savings against the target line. The hollow end is what special spending
-    // took, so the solid part left is net savings.
+    // took, so the solid part left is net savings. The legend only lists what's on the chart.
     const max = Math.max(1, target, ...months.map(x => Math.abs(x.gross))) * 1.1, pct = v => (v / max * 100).toFixed(1);
-    let anySp = false;
+    const kind = x => x.gross < 0 ? 'down' : !target || x.gross >= target - 0.004 ? 'hit' : 'up';
+    const seen = new Set(months.map(kind)), anySp = months.some(x => x.gross > 0 && x.special > 0.004), anyProj = months.some(x => x.ym >= nowYm);
+    const chip = (cls, label) => `<span><i class="${cls}"></i>${label}</span>`;
+    h += `<div class="sv-chart"><div class="sv-ch">Gross savings by month</div><div class="lgd">${[
+      seen.has('hit') ? chip('hit', target ? 'Target hit' : 'Saved') : '', seen.has('up') ? chip('up', 'Below target') : '', seen.has('down') ? chip('down', 'Spent more than earned') : '',
+      anySp ? chip('sp', esc(spName)) : '', target ? chip('tg', 'Target') : '', anyProj ? chip('pj', 'Projected') : ''].join('')}</div>`;
     h += `<div class="sv-hist">` + months.map(x => {
-      const proj = x.ym >= nowYm, k = x.gross < 0 ? 'down' : !target || x.gross >= target - 0.004 ? 'hit' : 'up';
-      const cut = x.gross > 0 ? Math.min(x.special, x.gross) : 0; if (cut > 0.004) anySp = true;
+      const proj = x.ym >= nowYm, k = kind(x), cut = x.gross > 0 ? Math.min(x.special, x.gross) : 0;
       return `<button class="sv-row${x.ym === ym ? ' cur' : ''}" data-act="goto-month" data-ym="${x.ym}" aria-label="${esc(monthLabel(x.ym))}: ${money(x.gross)} gross${x.special > 0.004 ? `, ${money(x.saved)} net after special spending` : ''}${proj ? ', projected' : ''}">
         <span class="sv-m">${esc(monthShort(x.ym))}</span>
         <span class="sp-track">${target ? `<i class="save-tgt" style="left:${pct(target)}%"></i>` : ''}<span class="save-fill ${k}${proj ? ' proj' : ''}" style="width:${pct(Math.abs(x.gross))}%"></span>${cut > 0.004 ? `<span class="save-sp ${k}" style="left:${pct(x.gross - cut)}%;width:${pct(cut)}%"></span>` : ''}</span>
         <span class="num sv-v${x.gross < 0 ? ' t-bad' : ''}">${proj ? '≈' : ''}${money(x.gross)}</span></button>`;
-    }).join('') + `</div>`;
-    const gT = round2(past.reduce((n, x) => n + x.gross, 0)), nT = round2(past.reduce((n, x) => n + x.saved, 0));
-    h += `<p class="sv-note">${target ? 'Bars show gross savings, and the line on each is your target. ' : 'Bars show gross savings. '}${anySp ? `The hollow end is what ${esc(spName.toLowerCase())} took, so the solid part is net savings. ` : ''}${past.length ? `Since ${esc(monthLabel(since))}: <b class="num">${money(gT)}</b> gross, <b class="num">${money(nT)}</b> net.` : ''}</p>`;
+    }).join('') + `</div></div>`;
   }
-  return h + `</section>`;
+  return h + yearRecap(ym, since, nowYm, spName) + `</section>`;
+}
+// The year so far: gross savings, less each kind of special spending, gives net savings.
+// This month counts as projected.
+function yearRecap(ym, since, nowYm, spName) {
+  const y = ym.slice(0, 4), oc = cats().filter(c => c.type === 'exp' && c.outside), byCat = {};
+  let g = 0, n = 0, months = 0, special = 0;
+  for (let m = 1; m <= 12; m++) {
+    const mym = y + '-' + pad(m);
+    if (mym < since || mym > nowYm) continue;
+    const f = mym === nowYm ? projectMonth(mym) : monthFlow(mym);
+    g += f.gross; n += f.saved; special += f.special; months++;
+    monthTx(mym).forEach(t => { if (t.type === 'exp' && isOutside(t.cat)) byCat[t.cat] = (byCat[t.cat] || 0) + spendAmt(t); });
+  }
+  if (!months) return '';
+  const thisYear = y === nowYm.slice(0, 4), lines = oc.length > 1 ? oc.filter(c => Math.abs(byCat[c.id] || 0) > 0.004).map(c => [c.name, byCat[c.id]]) : [[spName, special]];
+  return `<div class="sv-year"><div class="sv-ch">${esc(y)}${thisYear ? ' so far' : ''}</div><div class="sv-split" style="margin-top:4px;border-top:0;padding-top:0">
+    <div><span>Gross savings</span><span class="num">${money(g)}</span></div>
+    ${lines.map(([name, v]) => `<button class="sv-sp" data-act="drill-special" data-ym="${esc(thisYear ? nowYm : y + '-12')}"><span>${esc(name)}</span><span class="num">${Math.abs(v) > 0.004 ? '−' + money(v) : money(0)}</span></button>`).join('')}
+    <div class="net"><span>Net savings</span><span class="num">${money(n)}</span></div></div>
+    ${thisYear ? `<p class="sv-note" style="margin-top:2px">${esc(monthName(nowYm))} counted as projected.</p>` : ''}</div>`;
 }
 // What special spending is called: the one category outside the budget, or a general name.
 function specialName() { const oc = cats().filter(c => c.type === 'exp' && c.outside); return oc.length === 1 ? oc[0].name : 'Special spending'; }
-// Running total for the year of categories kept outside the monthly budget, by month.
-function specialYear(ym) {
-  const oc = cats().filter(c => c.type === 'exp' && c.outside);
-  if (!oc.length) return '';
-  const y = ym.slice(0, 4), byCat = {}, rows = [];
-  let total = 0;
-  for (let m = 1; m <= 12; m++) {
-    const mym = y + '-' + pad(m); let v = 0;
-    monthTx(mym).forEach(t => { if (t.type === 'exp' && isOutside(t.cat)) { const a = spendAmt(t); v += a; byCat[t.cat] = (byCat[t.cat] || 0) + a; } });
-    total += v;
-    if (Math.abs(v) > 0.004) rows.push({ ym: mym, v: round2(v), cum: round2(total) });
-  }
-  const title = specialName();
-  let h = `<section class="sec" id="special"><div class="sec-h"><h2>${esc(title)} · ${esc(y)}</h2>${rows.length ? `<span class="sec-r num">${money(total)}</span>` : ''}</div>`;
-  if (!rows.length) return h + `<p class="sv-note" style="margin:0">Nothing yet in ${esc(y)}.</p></section>`;
-  // How much of the year's gross savings it used, this month projected.
-  const since = savingsSince(), nowYm = ymOf(todayISO());
-  if (since) {
-    let g = 0, n = 0;
-    for (let m = 1; m <= 12; m++) { const mym = y + '-' + pad(m); if (mym < since || mym > nowYm) continue; const f = mym === nowYm ? projectMonth(mym) : monthFlow(mym); g += f.gross; n += f.saved; }
-    if (Math.abs(g) > 0.004) h += `<div class="sv-split" style="margin:0 0 10px"><div><span>Gross savings, ${esc(y)}${y === nowYm.slice(0, 4) ? ' so far' : ''}</span><span class="num">${money(g)}</span></div>
-      <div><span>${esc(title)}</span><span class="num">−${money(total)}</span></div>
-      <div class="net"><span>Net savings</span><span class="num">${money(n)}</span></div></div>${y === nowYm.slice(0, 4) ? `<p class="sv-note" style="margin:-4px 0 10px">${esc(monthName(nowYm))} counted as projected.</p>` : ''}`;
-  }
-  const split = oc.filter(c => Math.abs(byCat[c.id] || 0) > 0.004);
-  if (oc.length > 1 && split.length) h += `<p class="sv-note" style="margin:0 0 8px">${split.map(c => `${esc(c.name)} <span class="num">${money(byCat[c.id])}</span>`).join(' · ')}</p>`;
-  const top = Math.max(1, total);
-  h += `<div class="sp-head"><span></span><span></span><span>Month</span><span>So far</span></div>` + rows.map(r => {
-    const prev = r.cum - r.v;
-    return `<button class="sp-row${r.ym === ym ? ' cur' : ''}" data-act="drill-special" data-ym="${r.ym}" aria-label="${esc(monthLabel(r.ym))}: ${money(r.v)}, ${money(r.cum)} for the year so far">
-      <span class="sp-m">${esc(monthShort(r.ym))}</span>
-      <span class="sp-track"><span class="sp-fill" style="width:${Math.max(0, prev / top * 100).toFixed(1)}%"></span><span class="sp-add" style="left:${Math.max(0, prev / top * 100).toFixed(1)}%;width:${Math.max(0, r.v / top * 100).toFixed(1)}%"></span></span>
-      <span class="num sp-v">${money(r.v)}</span><span class="num sp-c">${money(r.cum)}</span></button>`;
-  }).join('');
-  return h + `</section>`;
-}
 
 function vBudget() {
   const expCats = cats().filter(c => c.type === 'exp');

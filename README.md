@@ -77,14 +77,14 @@ spending, projected for this month and checked against your target (expected inc
 your monthly budgets). Stick to your budgets and you hit the target, however big a one-off
 purchase is. Below it, special spending comes off to give **net savings**, which matches your
 balances and the end-of-month projection in Cards. Each month's bar shows gross savings, with
-the part special spending took drawn hollow, so the solid part is net. The running total for
-Special Spending sits at the bottom, with the year's gross and net savings.
+the part special spending took drawn hollow, so the solid part is net. At the bottom, the year
+so far: gross savings, less special spending, gives net savings.
 
 ## Spending outside the monthly budget
 
 In the **Budget** tab, mark categories that sit outside the monthly budget (Special
 Spending is one by default). They still count toward balances and net savings, but not
-toward gross savings or your target, and Stats shows a running total for the year instead.
+toward gross savings or your target. Stats shows them in the year-so-far recap under Savings.
 
 ## Payments from email
 
