@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.19.4';
+const APP_VERSION = '1.19.5';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1077,7 +1077,7 @@ function savingsSection(ym) {
   if (ym === nowYm) h += `<p class="sv-delta">${deltaTag(projDelta())}</p>`;
   if (target) {
     const fillPct = Math.max(0, Math.min(100, saved / target * 100));
-    h += `<div class="track lg" style="margin-top:12px"><div class="fill ${tone}${ahead ? ' proj' : ''}" style="width:${fillPct.toFixed(1)}%"></div></div>
+    h += `<div class="track lg" style="margin-top:12px"><div class="fill ${tone}" style="width:${fillPct.toFixed(1)}%"></div></div>
       <div class="sv-cap"><span class="t-${tone}">${hit ? (saved - target > 0.5 ? `${money(saved - target)} above target` : 'On target') : `${money(target - saved)} short of target`}</span></div>`;
   }
   // How gross savings is worked out, then straight below it, how that compares with the target.
