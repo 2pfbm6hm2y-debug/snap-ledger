@@ -72,14 +72,19 @@ budget. Below that is one bar
 for the whole month's budget, with a marker for where today's plan is. Below
 it are your categories in your own order, each with one status in words, and a switch
 to see spending by card. Tap the month or any category to see it day by day and over the
-last six months. Savings shows this month's projection against your target (expected
-income minus your monthly budgets) and the months before it, and the running total for Special Spending sits at the bottom.
+last six months. Savings leads with **gross savings**: income less everything except special
+spending, projected for this month and checked against your target (expected income minus
+your monthly budgets). Stick to your budgets and you hit the target, however big a one-off
+purchase is. Below it, special spending comes off to give **net savings**, which matches your
+balances and the end-of-month projection in Cards. Each month's bar shows gross savings, with
+the part special spending took drawn hollow, so the solid part is net. The running total for
+Special Spending sits at the bottom, with the year's gross and net savings.
 
 ## Spending outside the monthly budget
 
 In the **Budget** tab, mark categories that sit outside the monthly budget (Special
-Spending is one by default). They still count toward balances, and Stats shows a
-running total for the year instead.
+Spending is one by default). They still count toward balances and net savings, but not
+toward gross savings or your target, and Stats shows a running total for the year instead.
 
 ## Payments from email
 
