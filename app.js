@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.20.0';
+const APP_VERSION = '1.20.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -55,9 +55,9 @@ function defaultSettings(lvl) {
 // plan: plus savings target, balances, transfers and paybacks. Ledgers from before levels get plan.
 const LEVELS = ['track', 'budget', 'plan'];
 const LEVEL_INFO = {
-  track: { name: 'Track spending', desc: 'See where your money goes. Snap screenshots or let bank emails fill it in, and see spending by category and card.', setup: 'Set up your cards · about 2 minutes' },
+  track: { name: 'Track spending', desc: 'See where your money goes. Payments come in from your bank emails or a screenshot, sorted by category and card.', setup: 'Set up your cards · about 2 minutes' },
   budget: { name: 'Stick to a budget', desc: 'Everything in Track, plus monthly budgets and how much you can spend each day.', setup: 'Set up cards and budgets · about 5 minutes' },
-  plan: { name: 'Save and plan', desc: 'Everything in Budget, plus a savings target, balances that match your bank, and where the month will end.', setup: 'Set up cards, budgets, income and balances · about 10 minutes' }
+  plan: { name: 'Save and plan', desc: 'Everything in Budget, plus a savings target, what friends or work owe you, balances that match your bank, and where the month will end.', setup: 'Set up cards, budgets, income and balances · about 10 minutes' }
 };
 const level = () => { const s = st(); return s && LEVELS.includes(s.level) ? s.level : 'plan'; };
 const atLeast = l => LEVELS.indexOf(level()) >= LEVELS.indexOf(l);
@@ -620,14 +620,14 @@ function onData() {
    and tapping one takes you there. Optional steps can be left. Hide puts it away for good. */
 function setupSteps() {
   const steps = [
-    { id: 'cards', t: 'Add your cards', h: 'Each card with its last 4 digits, so screenshots land on the right one.', done: accts().length > 0 },
-    { id: 'first', t: 'Add your first transactions', h: "Screenshot your bank app's transaction list and add it in Scan, top of the list first. Or tap + to add one by hand.", done: allTx().some(t => t.type !== 'adj') }];
+    { id: 'cards', t: 'Add your cards', h: 'Each card with its last 4 digits, so emails and screenshots land on the right one.', done: accts().length > 0 },
+    { id: 'email', t: 'Bring in bank alert emails', h: 'DBS, PayLah! and Citi payments then arrive on their own. A one-time setup of about 10 minutes.', done: inboxOn(), rec: true },
+    { id: 'first', t: 'Add your first transactions', h: "Review what came in from your emails, or screenshot your bank app's list and add it in Scan. Or tap + to add one by hand.", done: allTx().some(t => t.type !== 'adj') }];
   if (atLeast('budget')) steps.push({ id: 'budgets', t: 'Set monthly budgets', h: 'A monthly amount per category. Stats turns it into what you can spend each day.', done: budgetCats().length > 0 });
   if (atLeast('plan')) {
     steps.push({ id: 'income', t: 'Set your expected income', h: "Your savings target is what's left after your budgets, and Stats projects what you'll save.", done: st().expIncome > 0 });
     steps.push({ id: 'balances', t: 'Add your balances', h: "Copy each card's balance from your bank app, so your totals always match.", done: Object.keys(balances()).length > 0, opt: true });
   }
-  steps.push({ id: 'email', t: 'Bring in bank alert emails', h: 'DBS, PayLah! and Citi payments arrive without typing.', done: inboxOn(), opt: true });
   return steps;
 }
 function setupCard() {
@@ -639,7 +639,7 @@ function setupCard() {
   return `<section class="setup"><div class="setup-h"><b>${reqDone ? "You're set up" : 'Get set up'}</b><span class="muted">${steps.filter(x => x.done).length} of ${steps.length} done</span><button class="btn ghost small" data-act="setup-hide">Hide</button></div>
     ${steps.map(x => `<button class="setup-row${x.done ? ' done' : ''}" data-act="setup-go" data-id="${x.id}"${x.done ? ' disabled' : ''}>
       <span class="setup-ck" aria-hidden="true">${x.done ? ICON.ok : ''}</span>
-      <span class="setup-tx"><span class="setup-t">${esc(x.t)}${x.opt && !x.done ? '<span class="setup-opt">Optional</span>' : ''}</span>${x === next ? `<span class="setup-hint">${esc(x.h)}</span>` : ''}</span>
+      <span class="setup-tx"><span class="setup-t">${esc(x.t)}${x.opt && !x.done ? '<span class="setup-opt">Optional</span>' : x.rec && !x.done ? '<span class="setup-opt rec">Recommended</span>' : ''}</span>${x === next ? `<span class="setup-hint">${esc(x.h)}</span>` : ''}</span>
       ${x.done ? '' : CHEV}</button>`).join('')}
     <p class="setup-foot">${esc(LEVEL_INFO[level()].name)}. <button class="lnk" data-act="setup-level">Go deeper or simpler</button></p></section>`;
 }
@@ -1992,19 +1992,19 @@ function welcomeSteps() {
     icon: '<img src="icons/cards-180.png" alt="">', app: true,
     title: 'Your money, sorted. Without the busywork.',
     body: `<ul class="wl-pp">
-        <li><s>Typing in every expense</s><b>${CHECK_SVG}Snap a screenshot, or let your bank's alert emails fill it in</b></li>
+        <li><s>Typing in every expense</s><b>${CHECK_SVG}Payments log themselves from your bank's alert emails</b></li>
         <li><s>Finding out you overspent at month end</s><b>${CHECK_SVG}Know what you can spend today</b></li>
-        <li><s>Totals that never match your bank</s><b>${CHECK_SVG}Every dollar ties back to your balance</b></li>
+        <li><s>Totals that never match your bank</s><b>${CHECK_SVG}Every dollar ties back to your balance, even when friends owe you</b></li>
       </ul><p class="muted wl-c">Private by design. Your data stays on this phone: no sign-up, no ads.</p>`
   }, {
-    icon: ICON.scan,
-    title: 'Snap, don\'t type',
-    body: `<div class="wl-mock"><div class="wm-h"><span>Rewards Visa ••4821</span><span class="wm-ok">${CHECK_SVG}Card matched</span></div>
-        <div class="wm-r"><span>GrabFood</span><span class="wm-c">Food</span><span class="num">S$12.50</span></div>
-        <div class="wm-r"><span>FairPrice</span><span class="wm-c">Groceries</span><span class="num">S$43.20</span></div>
-        <div class="wm-r"><span>Bus/MRT</span><span class="wm-c">Transport</span><span class="num">S$2.17</span></div></div>
-      <p>Screenshot your bank app, or a PDF statement. Snap Ledger reads it on this phone, picks the card, guesses each category and remembers your fixes.</p>
-      <p>Bank alert emails can come in on their own, so most payments need no typing at all.</p>`
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6 8.5-6"/></svg>',
+    title: 'Payments log themselves',
+    body: `<div class="wl-mock"><div class="wm-h"><span>From your bank emails</span><span class="wm-new">3 new</span></div>
+        <div class="wm-r"><span>Toast Box<small>DBS card ••1234</small></span><span class="wm-c">Food</span><span class="num">S$6.80</span></div>
+        <div class="wm-r"><span>Grab ride<small>Citi card ••5678</small></span><span class="wm-c">Transport</span><span class="num">S$14.20</span></div>
+        <div class="wm-r"><span>FairPrice<small>PayLah!</small></span><span class="wm-c">Groceries</span><span class="num">S$38.45</span></div></div>
+      <p>Turn on your bank's alert emails and each payment arrives on its own, with the amount, merchant, card and category filled in. You just tick and add. Reads DBS, PayLah! and Citi so far.</p>
+      <p>For anything else, snap a screenshot or PDF statement. It's read on this phone, matched to the card, and your category fixes are remembered.</p>`
   }, {
     icon: ICON.stats,
     title: 'Know what you can spend today',
@@ -2016,10 +2016,13 @@ function welcomeSteps() {
   }, {
     icon: ICON.wallet,
     title: 'Every dollar accounted for',
-    body: `<div class="wl-mock"><div class="wm-h"><span>Rewards Visa ••4821</span></div><div class="wm-k">Owed</div><div class="wm-big"><span class="num">S$1,040.40</span></div>
-        <div class="wm-ok">${CHECK_SVG}Checked with your bank today</div></div>
-      <ul class="wl-ticks"><li>${CHECK_SVG}Balances match your bank app, with one tap to confirm</li><li>${CHECK_SVG}Card bills and transfers are never counted as spending</li>
-        <li>${CHECK_SVG}Duplicates are caught across screenshots and emails</li><li>${CHECK_SVG}Money friends pay back isn't counted as income</li></ul>`
+    body: `<div class="wl-mock"><div class="wm-h"><span>Owed to you</span></div>
+        <div class="wm-r"><span>Work<small>Team lunch, client taxi</small></span><span></span><span class="num">S$186.40</span></div>
+        <div class="wm-r"><span>Friends<small>Your share of dinner, paid in full</small></span><span></span><span class="num">S$72.00</span></div>
+        <div class="wm-r wm-ok-r"><span>Rewards Visa ••4821</span><span></span><span class="wm-ok">${CHECK_SVG}Matches bank</span></div></div>
+      <ul class="wl-ticks"><li>${CHECK_SVG}<span><b>Paid for friends or work?</b> Their share is tracked as owed to you, not your spending, and your balances still match.</span></li>
+        <li>${CHECK_SVG}Balances match your bank app, with one tap to confirm</li><li>${CHECK_SVG}Card bills and transfers are never counted as spending</li>
+        <li>${CHECK_SVG}Duplicates are caught across emails and screenshots</li></ul>`
   }];
   if (isIOS() && !isStandalone()) steps.push({
     icon: SHARE_SVG,

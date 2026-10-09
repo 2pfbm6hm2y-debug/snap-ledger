@@ -3,13 +3,14 @@
 Your money, sorted, without the busywork. A personal expense ledger for iPhone that
 runs entirely on the phone.
 
-- **Convenient.** Snap a screenshot or PDF statement and it's read on the phone, matched
-  to the card and categorised. Bank alert emails (DBS, PayLah!, Citi) can come in on
-  their own.
+- **Convenient.** Payments log themselves from your bank's alert emails (DBS, PayLah!,
+  Citi so far), with the merchant, card and category filled in. For anything else, snap
+  a screenshot or PDF statement and it's read on the phone.
 - **Insightful.** Your budget becomes what you can spend today. See where the month will
   end, what each day did to it, and why you're short if you are.
-- **Robust.** Balances match your bank app. Card bills and transfers aren't counted as
-  spending, duplicates are caught, and money paid back isn't counted as income.
+- **Robust.** Paid for friends or work? Their share is tracked as owed to you, not your
+  spending, and your balances still match your bank app. Card bills and transfers aren't
+  counted as spending either, and duplicates are caught.
 - **Private.** Your data stays on the phone: no sign-up, no ads, no AI service.
 
 ## Put it online (GitHub Pages, free)
