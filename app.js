@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.20.1';
+const APP_VERSION = '1.21.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -764,7 +764,10 @@ function monthPlan(ym) {
 // What daily categories can spend on a given day: what was left of their budgets at the start of that
 // day, less any monthly bills already over budget, shared evenly over the days left including that one,
 // and never more than the daily budget (their monthly budget split over the month's days). Spending
-// less early on doesn't raise later days' limits. Also what they spent that day.
+// less early on doesn't raise later days' limits. Making up for overspending never takes it below half
+// the daily budget, so it stays realistic. What that leaves unmade comes out of the month's savings.
+// Also what they spent that day.
+const ALLOW_FLOOR = 0.5;
 function dayLimit(iso) {
   const ym = ymOf(iso), d = +iso.slice(8, 10), b = budgetCats(), daily = b.filter(c => !isMonthly(c)), monthly = b.filter(isMonthly);
   const dB = daily.reduce((n, c) => n + c.budget, 0);
@@ -778,8 +781,8 @@ function dayLimit(iso) {
     else if (t.d <= iso) mSp[t.cat] = (mSp[t.cat] || 0) + a;
   });
   const mOver = monthly.reduce((n, c) => n + Math.max(0, (mSp[c.id] || 0) - c.budget), 0), days = daysIn(ym), daily0 = dB / days;
-  const share = Math.max(0, dB - before - mOver) / (days - d + 1);
-  return { limit: Math.min(daily0, share), daily: daily0, dB, days, mOver, ahead: before > daily0 * (d - 1) + 0.5, overBills: monthly.filter(c => (mSp[c.id] || 0) > c.budget + 0.004), spent: round2(on) };
+  const share = Math.max(0, dB - before - mOver) / (days - d + 1), floor = daily0 * ALLOW_FLOOR;
+  return { limit: Math.min(daily0, Math.max(floor, share)), floored: share < floor - 0.004, daily: daily0, dB, days, mOver, ahead: before > daily0 * (d - 1) + 0.5, overBills: monthly.filter(c => (mSp[c.id] || 0) > c.budget + 0.004), spent: round2(on) };
 }
 // Looking back from yesterday: days in a row that daily spending stayed within that day's allowance,
 // and how many of the last seven did. Only days since the ledger's first entry count. The day-by-day
@@ -855,8 +858,10 @@ function heroSection(P) {
         const I = P.todayInfo, names = esc(listNames(P.daily.map(c => c.name)));
         const base = `Your daily budget is <span class="num">${money(I.daily)}</span> for ${names}.`;
         if (lim >= I.daily - 0.5) return base;
-        const why = listNames([I.ahead ? 'spending above plan earlier this month' : '', I.overBills.length ? `${esc(listNames(I.overBills.map(c => c.name)))} going over budget` : ''].filter(Boolean)) || 'spending earlier this month';
-        return base + (lim < 0.5 ? ` There's no allowance left this month, after ${why}.` : ` Today's allowance is lower to make up for ${why}.`);
+        const why = listNames([I.ahead ? 'spending above plan' : '', I.overBills.length ? `${esc(listNames(I.overBills.map(c => c.name)))} going over budget` : ''].filter(Boolean)) || 'spending earlier this month';
+        // What keeping to it is worth: tomorrow's projection counts today at what was spent, not the daily budget.
+        const keep = !over && atLeast('plan') && savingsSince() ? ` Keep to it and projected savings go up <span class="num">${money(I.daily - lim)}</span> by tomorrow.` : '';
+        return base + (lim < 0.5 ? ` There's no allowance left this month, after ${why}.` : I.floored ? ` Today's allowance is half that, the lowest it goes, to make up for ${why}.` : ` Today's allowance is lower to make up for ${why}.`) + keep;
       })()}</p>
       ${cheerLine()}
       <div class="hero-month"><div class="hero-top"><span class="hero-k">This month</span>${pillOf(P.status)}</div>`;
@@ -1061,20 +1066,22 @@ function projectMonth(ym) {
   let spend = 0, paced = null;
   if (ym === ymOf(today) && daily.length) {
     const days = daysIn(ym), n = days - (+today.slice(8, 10)) + 1, above = [];
-    let beforeT = 0, onT = 0, d0T = 0, rest = 0;
+    let beforeT = 0, onT = 0, d0T = 0, rest = 0, laterT = 0;
     daily.forEach(c => {
       const d0 = c.budget / days;
       let before = 0, on = 0, later = 0;
       monthTx(ym).forEach(t => { if (t.type === 'exp' && t.cat === c.id) { const a = spendAmt(t); if (t.d < today) before += a; else if (t.d === today) on += a; else later += a; } });
       // Days after today: the daily budget, or what's already dated for them if more.
       const r = Math.max(later, d0 * (n - 1));
-      beforeT += before; onT += on; d0T += d0; rest += r;
+      beforeT += before; onT += on; d0T += d0; rest += r; laterT += later;
       if (before + Math.max(on, d0) + r > c.budget + 0.5) above.push(c);
     });
-    const proj = beforeT + Math.max(onT, d0T) + rest, soFar = beforeT + onT;
+    const proj = beforeT + Math.max(onT, d0T) + rest, soFar = beforeT + onT, limit = dayLimit(today).limit;
     spend += proj;
     b.forEach(c => { if (isMonthly(c)) spend += Math.max(c.budget, sp[c.id] || 0); });
-    paced = { daily0: daily.reduce((n, c) => n + c.budget, 0) / days, above, overBills: b.filter(c => isMonthly(c) && (sp[c.id] || 0) > c.budget + 0.004), toCome: proj - soFar, limit: dayLimit(today).limit };
+    // keepGain: how much more you'd save by keeping to the allowance every day left, rather than the daily budget.
+    const keepGain = Math.max(0, proj - (beforeT + Math.max(onT, limit) + Math.max(laterT, limit * (n - 1))));
+    paced = { daily0: daily.reduce((n, c) => n + c.budget, 0) / days, above, overBills: b.filter(c => isMonthly(c) && (sp[c.id] || 0) > c.budget + 0.004), toCome: proj - soFar, limit, keepGain };
   } else b.forEach(c => { spend += Math.max(c.budget, sp[c.id] || 0); });
   let special = 0;
   Object.keys(sp).forEach(id => { if (!b.some(c => c.id === id)) { spend += sp[id]; if (isOutside(id)) special += sp[id]; } });
@@ -1150,10 +1157,11 @@ function savingsSection(ym) {
       // This month: daily categories running above plan and monthly bills over budget are what today's
       // lowered limit makes up. Spending outside the budgets has to come out of the daily limit too.
       why = listNames([P.above.length ? `${P.above.length > 2 ? 'daily spending' : esc(listNames(P.above.map(c => c.name)))} running above plan` : '', P.overBills.length ? `${esc(listNames(P.overBills.map(c => c.name)))} going over budget` : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
+      // The allowance stops at half the daily budget, so keeping to it may not close the whole gap.
       fix = P.toCome < gap - 0.004 ? `Even with no more daily spending this month, you'd save <span class="num">${money(saved + P.toCome)}</span>.`
-        : P.limit < 0.5 ? `To hit the target, spend <span class="num">${money(gap)}</span> less than your daily budget allows over the rest of the month.`
-        : extra > 0.5 ? `To hit the target, stay within your daily allowance and spend <span class="num">${money(extra)}</span> less than it allows over the rest of the month.`
-        : 'Staying within your daily allowance makes it up.';
+        : P.keepGain >= gap - 0.5 ? 'Staying within your daily allowance makes it up.'
+        : P.keepGain >= 0.5 ? `Staying within your daily allowance brings it to <span class="num">${money(saved + P.keepGain)}</span>.`
+        : `To hit the target, spend <span class="num">${money(gap)}</span> less than your daily budget allows over the rest of the month.`;
     } else {
       const room = b.reduce((n, c) => n + Math.max(0, c.budget - (sp[c.id] || 0)), 0), over = b.filter(c => (sp[c.id] || 0) > c.budget + 0.004);
       why = listNames([over.length ? `${esc(listNames(over.map(c => c.name)))} going over budget` : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
