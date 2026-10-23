@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.21.0';
+const APP_VERSION = '1.21.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1076,12 +1076,12 @@ function projectMonth(ym) {
       beforeT += before; onT += on; d0T += d0; rest += r; laterT += later;
       if (before + Math.max(on, d0) + r > c.budget + 0.5) above.push(c);
     });
-    const proj = beforeT + Math.max(onT, d0T) + rest, soFar = beforeT + onT, limit = dayLimit(today).limit;
+    const proj = beforeT + Math.max(onT, d0T) + rest, limit = dayLimit(today).limit;
     spend += proj;
     b.forEach(c => { if (isMonthly(c)) spend += Math.max(c.budget, sp[c.id] || 0); });
     // keepGain: how much more you'd save by keeping to the allowance every day left, rather than the daily budget.
     const keepGain = Math.max(0, proj - (beforeT + Math.max(onT, limit) + Math.max(laterT, limit * (n - 1))));
-    paced = { daily0: daily.reduce((n, c) => n + c.budget, 0) / days, above, overBills: b.filter(c => isMonthly(c) && (sp[c.id] || 0) > c.budget + 0.004), toCome: proj - soFar, limit, keepGain };
+    paced = { daily0: daily.reduce((n, c) => n + c.budget, 0) / days, above, overBills: b.filter(c => isMonthly(c) && (sp[c.id] || 0) > c.budget + 0.004), limit, keepGain };
   } else b.forEach(c => { spend += Math.max(c.budget, sp[c.id] || 0); });
   let special = 0;
   Object.keys(sp).forEach(id => { if (!b.some(c => c.id === id)) { spend += sp[id]; if (isOutside(id)) special += sp[id]; } });
@@ -1157,9 +1157,9 @@ function savingsSection(ym) {
       // This month: daily categories running above plan and monthly bills over budget are what today's
       // lowered limit makes up. Spending outside the budgets has to come out of the daily limit too.
       why = listNames([P.above.length ? `${P.above.length > 2 ? 'daily spending' : esc(listNames(P.above.map(c => c.name)))} running above plan` : '', P.overBills.length ? `${esc(listNames(P.overBills.map(c => c.name)))} going over budget` : '', extra > 0.5 ? 'spending outside your budgets' : ''].filter(Boolean));
-      // The allowance stops at half the daily budget, so keeping to it may not close the whole gap.
-      fix = P.toCome < gap - 0.004 ? `Even with no more daily spending this month, you'd save <span class="num">${money(saved + P.toCome)}</span>.`
-        : P.keepGain >= gap - 0.5 ? 'Staying within your daily allowance makes it up.'
+      // The best case: keeping to the allowance every day left. It stops at half the daily budget, so
+      // that may not close the whole gap.
+      fix = P.keepGain >= gap - 0.5 ? 'Staying within your daily allowance makes it up.'
         : P.keepGain >= 0.5 ? `Staying within your daily allowance brings it to <span class="num">${money(saved + P.keepGain)}</span>.`
         : `To hit the target, spend <span class="num">${money(gap)}</span> less than your daily budget allows over the rest of the month.`;
     } else {
