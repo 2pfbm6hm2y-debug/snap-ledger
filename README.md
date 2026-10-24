@@ -94,20 +94,27 @@ of the month's savings. Below that is one bar
 for the whole month's budget, with a marker for where today's plan is. Below
 it are your categories in your own order, each with one status in words, and a switch
 to see spending by card. Tap the month or any category to see it day by day and over the
-last six months. Savings leads with **gross savings**: income less everything except special
-spending, projected for this month and checked against your target (expected income minus
+last six months. Savings leads with **gross savings**: income less everything except Special
+Spending, projected for this month and checked against your target (expected income minus
 your monthly budgets). Stick to your budgets and you hit the target, however big a one-off
-purchase is. Below it, special spending comes off to give **net savings**, which matches your
+purchase is. Below it, Special Spending comes off to give **net savings**, which matches your
 balances and the end-of-month projection in Cards. Each month's bar is gross savings: the
-solid part is net savings and the hollow part is what special spending took, against the
-target line. At the bottom, the year so far: gross savings, less special spending, gives net
-savings. Tap special spending to see it month by month, and a month to see its entries.
+solid part is net savings and the hollow part is what Special Spending took, against the
+target line. At the bottom, the year so far: gross savings, less Special Spending, gives net
+savings. Tap Special Spending to see the year by category, each trip with its total and entries.
 
-## Spending outside the monthly budget
+## Special Spending and trips
 
-In the **Budget** tab, mark categories that sit outside the monthly budget (Special
-Spending is one by default). They still count toward balances and net savings, but not
-toward gross savings or your target. Stats shows them in the year-so-far recap under Savings.
+**Special Spending** is its own type, next to Expense and Income, for trips and one-offs like
+furniture. It has its own categories, such as a trip or Others. It counts toward balances and
+net savings, but not your budgets, daily allowance, gross savings or target.
+
+Add a trip in the **Budget** tab under Special Spending and give it dates. Payments dated
+within them, from email, screenshots or added by hand, go under the trip, except monthly bills.
+Bookings made earlier, like flights, you put under the trip yourself. A trip drops out of the
+pickers a month after it ends, but stays in Stats. Each trip shows what you've spent on it,
+your share only if friends are paying you back. Tap **Plus … Special Spending** on the Ledger,
+or Special Spending under Savings, to see the year by category.
 
 ## Payments from email
 

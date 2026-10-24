@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.21.1';
+const APP_VERSION = '1.22.0';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -44,12 +44,12 @@ const DEFAULT_CATS = [
   ['food', 'Food & Drinks', 'exp'], ['groceries', 'Groceries', 'exp'], ['transport', 'Transport', 'exp'], ['shopping', 'Shopping', 'exp'],
   ['bills', 'Bills & Utilities', 'exp'], ['home', 'Rent & Home', 'exp'], ['health', 'Health', 'exp'], ['fun', 'Entertainment', 'exp'],
   ['travel', 'Travel', 'exp'], ['subs', 'Subscriptions', 'exp'], ['edu', 'Education', 'exp'], ['gifts', 'Gifts & Giving', 'exp'],
-  ['care', 'Personal Care', 'exp'], ['fees', 'Fees & Interest', 'exp'], ['other', 'Other', 'exp'], ['special', 'Special Spending', 'exp'],
+  ['care', 'Personal Care', 'exp'], ['fees', 'Fees & Interest', 'exp'], ['other', 'Other', 'exp'], ['special', 'Others', 'sp'],
   ['salary', 'Salary', 'inc'], ['cashback', 'Cashback & Rewards', 'inc'], ['otherinc', 'Other income', 'inc']
-].map(([id, name, type]) => Object.assign({ id, name, type, budget: null }, id === 'special' ? { outside: true } : {}));
+].map(([id, name, type]) => ({ id, name, type, budget: null }));
 
 function defaultSettings(lvl) {
-  return { v: 2, cur: 'S$', accounts: [], categories: clone(DEFAULT_CATS), rules: {}, level: lvl || 'budget' };
+  return { v: 3, cur: 'S$', accounts: [], categories: clone(DEFAULT_CATS), rules: {}, level: lvl || 'budget' };
 }
 // How deep the app goes. track: where money goes. budget: plus monthly budgets and a daily amount.
 // plan: plus savings target, balances, transfers and paybacks. Ledgers from before levels get plan.
@@ -61,15 +61,27 @@ const LEVEL_INFO = {
 };
 const level = () => { const s = st(); return s && LEVELS.includes(s.level) ? s.level : 'plan'; };
 const atLeast = l => LEVELS.indexOf(level()) >= LEVELS.indexOf(l);
-// Ledgers from before v2 get the Special Spending category once. Returns true if settings changed.
+// Brings older ledgers up to date. Returns true if settings changed.
+// v2: a Special Spending category. v3: Special Spending is its own kind, next to Expense and Income,
+// with its own categories (type 'sp'). Categories that were outside the budget move there, and the old
+// Special Spending category becomes Others.
 function migrate(s) {
-  if (!s || (s.v || 1) >= 2) return false;
+  if (!s || (s.v || 1) >= 3) return false;
   const list = s.categories || (s.categories = []);
-  if (!list.some(c => c.id === 'special')) {
+  if ((s.v || 1) < 2 && !list.some(c => c.id === 'special')) {
     let at = -1; list.forEach((c, i) => { if (c.type === 'exp') at = i; });
     list.splice(at + 1, 0, { id: 'special', name: 'Special Spending', type: 'exp', budget: null, outside: true });
   }
-  s.v = 2;
+  list.forEach(c => {
+    if (c.type !== 'exp' || !c.outside) return;
+    c.type = 'sp'; c.budget = null; delete c.outside; delete c.freq;
+    if (c.id === 'special' && c.name === 'Special Spending') c.name = 'Others';
+  });
+  if (!list.some(c => c.type === 'sp')) {
+    let at = -1; list.forEach((c, i) => { if (c.type === 'exp') at = i; });
+    list.splice(at + 1, 0, { id: list.some(c => c.id === 'special') ? 'c' + newId() : 'special', name: 'Others', type: 'sp', budget: null });
+  }
+  s.v = 3;
   return true;
 }
 
@@ -85,6 +97,8 @@ function makeDemo() {
   ];
   const budgets = { food: 450, groceries: 300, transport: 160, shopping: 250, bills: 180, subs: 45, fun: 120, care: 60 };
   s.categories.forEach(c => { if (budgets[c.id]) c.budget = budgets[c.id]; });
+  const tripYm = addMonths(ymOf(todayISO()), -1);
+  s.categories.splice(s.categories.findIndex(c => c.id === 'special'), 0, { id: 'demo-trip', name: 'Bali trip', type: 'sp', budget: null, from: tripYm + '-10', to: tripYm + '-14' });
   const M = {
     food: [['Ya Kun Kaya Toast', 4, 9], ['Toast Box', 5, 11], ['Hawker centre', 4, 9], ['Din Tai Fung', 38, 85], ['GrabFood', 14, 32], ['Starbucks', 6, 10]],
     groceries: [['FairPrice', 18, 95], ['Sheng Siong', 12, 60], ['Cold Storage', 25, 80]],
@@ -115,7 +129,8 @@ function makeDemo() {
     add(26, 'cashback', 'Card cashback', 18 + rnd() * 10, 'demo-b', 'inc');
     add(25, 'salary', 'Salary', 5200, 'demo-c', 'inc');
     if (k === -4) add(18, 'special', 'Sofa', 890, 'demo-b');
-    if (k === -2) add(9, 'special', 'Flights to Bali', 486.4, 'demo-a');
+    if (k === -2) add(9, 'demo-trip', 'Flights to Bali', 486.4, 'demo-a');
+    if (k === -1) { add(10, 'demo-trip', 'Villa in Ubud', 412.6, 'demo-a'); add(11, 'demo-trip', 'Dinner in Seminyak', 68.2, 'demo-b'); add(12, 'demo-trip', 'Grab Bali', 14.8, 'demo-a'); add(13, 'demo-trip', 'Spa', 45, 'demo-b'); }
     months[ym] = { month: ym, txns };
   }
   // Starting balances, then each card's bill is paid from the savings account on the 12th.
@@ -162,7 +177,7 @@ const accById = id => accts().find(a => a.id === id);
 const catName = id => (catById(id) || { name: 'Uncategorised' }).name;
 const accName = id => { const a = accById(id); return a ? a.name + (a.last4 ? ' ••' + a.last4 : '') : 'No card'; };
 const monthTx = ym => (mo()[ym] && mo()[ym].txns) || [];
-const kindOf = t => t.type === 'xfer' ? 'xfer' : t.type === 'adj' ? 'adj' : t.type === 'back' ? 'back' : t.type === 'inc' ? 'inc' : (t.amt < 0 ? 'ref' : 'exp');
+const kindOf = t => t.type === 'xfer' ? 'xfer' : t.type === 'adj' ? 'adj' : t.type === 'back' ? 'back' : t.type === 'inc' ? 'inc' : t.amt < 0 ? 'ref' : isOutside(t.cat) ? 'sp' : 'exp';
 /* Paid for someone else: an expense can carry t.owed = { by: 'work' | 'friends', amt }, the part
    that will be paid back. Balances still take the full charge, but only your share counts as
    spending. Money coming back is a payback (type 'back'): it raises the account it lands in and
@@ -172,8 +187,22 @@ const owerName = by => (OWERS.find(o => o[0] === by) || [by, 'Someone'])[1];
 const owedOf = t => t.type === 'exp' && t.owed && t.owed.amt > 0 && t.amt > 0 ? Math.min(t.owed.amt, t.amt) : 0;
 const spendAmt = t => t.type === 'exp' ? round2(t.amt - owedOf(t)) : 0;
 const accShort = id => (accById(id) || { name: 'No card' }).name;
-const isOutside = id => { const c = catById(id); return !!(c && c.outside); };
-const budgetCats = () => cats().filter(c => c.type === 'exp' && !c.outside && c.budget > 0);
+/* Special Spending is its own kind, next to Expense and Income: one-offs and trips that sit outside the
+   monthly budget. Its entries are expenses (type 'exp') in a Special Spending category (type 'sp'), so
+   balances, cards and what others owe you work the same. They count toward net savings only.
+   A category can have dates, for a trip: anything dated within them goes under it, except monthly bills. */
+const SP_NAME = 'Special Spending';
+const isSpCat = c => !!c && c.type === 'sp';
+const isOutside = id => isSpCat(catById(id));
+const spCats = () => cats().filter(isSpCat);
+const hasDates = c => !!(c && c.from && c.to);
+const addDays = (iso, k) => { const dt = new Date(iso + 'T00:00:00'); dt.setDate(dt.getDate() + k); return isoOf(dt); };
+// The trip a date falls in (the latest one, if they overlap).
+const tripOn = d => (d && spCats().filter(c => hasDates(c) && d >= c.from && d <= c.to).sort((a, b) => b.from.localeCompare(a.from))[0]) || null;
+// A trip stays in the pickers until a month after it ends, or for entries dated within it.
+const spOpen = (c, d) => !hasDates(c) || c.to >= addDays(todayISO(), -30) || (!!d && d >= c.from && d <= c.to);
+const tripRange = c => hasDates(c) ? `${fmtDate(c.from)} – ${fmtDate(c.to)}` : '';
+const budgetCats = () => cats().filter(c => c.type === 'exp' && c.budget > 0);
 // The savings target is what's left of expected income once every monthly budget is spent.
 const saveTarget = () => { const inc = st().expIncome > 0 ? st().expIncome : 0, b = budgetCats().reduce((n, c) => n + c.budget, 0); return inc > b ? round2(inc - b) : 0; };
 const targetText = () => { const inc = st().expIncome > 0 ? st().expIncome : 0; return !inc ? 'Not set' : money(saveTarget(), 0); };
@@ -527,11 +556,13 @@ function merchantIndex() {
   });
   return [...map.values()].map(e => {
     e.uses.sort((a, b) => b.d.localeCompare(a.d) || (b.t || 0) - (a.t || 0));
+    // A merchant's usual category comes from outside trips, if it's been used outside one.
+    const home = e.uses.filter(t => !hasDates(catById(t.cat))), pool = home.length ? home : e.uses;
     const tally = {};
-    e.uses.slice(0, 8).forEach((t, i) => { const key = [t.type, t.cat, t.acc].join('|'); tally[key] = (tally[key] || 0) + 1 - i * 0.01; });
+    pool.slice(0, 8).forEach((t, i) => { const key = [t.type, t.cat, t.acc].join('|'); tally[key] = (tally[key] || 0) + 1 - i * 0.01; });
     const [type, cat, acc] = Object.entries(tally).sort((a, b) => b[1] - a[1])[0][0].split('|');
     return { name: e.uses[0].m.trim(), key: e.k, score: e.score, latest: e.uses[0].d, type, cat, acc };
-  }).filter(x => catById(x.cat) && accById(x.acc)).sort((a, b) => b.score - a.score || b.latest.localeCompare(a.latest));
+  }).filter(x => catById(x.cat) && accById(x.acc) && spOpen(catById(x.cat), todayISO())).sort((a, b) => b.score - a.score || b.latest.localeCompare(a.latest));
 }
 // Top picks for an empty box; otherwise names starting with what you typed, then words starting with it, then anything containing it.
 function suggFor(q) {
@@ -549,9 +580,12 @@ function suggHtml(list) {
 }
 function applySugg(x) {
   $('#f-m').value = x.name;
-  const kind = $('#f-kind'), type = x.type === 'inc' ? 'inc' : 'exp';
-  if (type === 'inc') kind.value = 'inc'; else if (kind.value !== 'ref') kind.value = 'exp';
-  $('#f-cat').innerHTML = catOptions(type, x.cat);
+  const kind = $('#f-kind'), xc = catById(x.cat), d = $('#f-date').value, trip = tripOn(d);
+  let k = x.type === 'inc' ? 'inc' : kind.value === 'ref' ? 'ref' : isSpCat(xc) ? 'sp' : 'exp', cat = x.cat;
+  // During a trip, the merchant's usual category gives way to the trip, except for monthly bills.
+  if (k === 'exp' && trip && !isMonthly(xc)) { k = 'sp'; cat = trip.id; S.sheet.tripAuto = true; }
+  kind.value = k; syncKind(k);
+  $('#f-cat').innerHTML = catOptionsFor(k, cat, d);
   $('#f-acc').value = x.acc;
   ['#f-cat', '#f-acc'].forEach(sel => { const e = $(sel); e.classList.remove('filled'); void e.offsetWidth; e.classList.add('filled'); });
   $('#f-sugg').innerHTML = '';
@@ -559,11 +593,19 @@ function applySugg(x) {
 }
 
 /* ---------- options ---------- */
-const catOptions = (type, sel) => cats().filter(c => c.type === type).map(c => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+const catOptions = (type, sel, d) => cats().filter(c => c.type === type && (type !== 'sp' || c.id === sel || spOpen(c, d))).map(c => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+// The categories a kind of entry can use. A refund can be for an expense or for Special Spending.
+const catTypeOf = kind => kind === 'inc' ? 'inc' : kind === 'sp' ? 'sp' : 'exp';
+const catFits = (kind, id) => { const c = catById(id); return !!c && (kind === 'ref' ? c.type !== 'inc' : c.type === catTypeOf(kind)); };
+const catOptionsFor = (kind, sel, d) => kind === 'ref'
+  ? `<optgroup label="Expense">${catOptions('exp', sel)}</optgroup><optgroup label="${SP_NAME}">${catOptions('sp', sel, d)}</optgroup>`
+  : catOptions(catTypeOf(kind), sel, d);
+// Where a new Special Spending entry goes: the trip it's dated in, or the first category open for it.
+const firstSp = d => (tripOn(d) || spCats().find(c => spOpen(c, d)) || spCats()[0] || {}).id || '';
 const accOptions = sel => accts().map(a => `<option value="${esc(a.id)}"${a.id === sel ? ' selected' : ''}>${esc(a.name)}${a.last4 ? ' ••' + esc(a.last4) : ''}</option>`).join('');
 const owerOptions = sel => OWERS.map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
 const pickOptions = sel => `<option value=""${sel ? '' : ' selected'}>Pick…</option>` + accOptions(sel);
-const kindOptions = (sel, withX) => [['exp', 'Expense'], ['ref', 'Refund'], ['inc', 'Income']].concat(withX ? [['xfer', 'Transfer']] : [], [['back', 'Payback']])
+const kindOptions = (sel, withX) => [['exp', 'Expense'], ['sp', SP_NAME], ['ref', 'Refund'], ['inc', 'Income']].concat(withX ? [['xfer', 'Transfer']] : [], [['back', 'Payback']])
   .filter(([v]) => v === sel || !(v === 'xfer' || v === 'back') || atLeast('plan')).map(([v, l]) => `<option value="${v}"${v === sel ? ' selected' : ''}>${l}</option>`).join('');
 const firstCat = type => (cats().find(c => c.type === type) || {}).id || '';
 
@@ -672,7 +714,7 @@ function vLedger() {
     <div class="fig"><div class="k">Income</div><div class="v good">${money(tt.income)}</div></div>
     ${budgetTotal || atLeast('budget') ? `<div class="fig"><div class="k">Budget left</div><div class="v ${budgetTotal ? (left < 0 ? 'bad' : '') : ''}">${budgetTotal ? money(left) : '—'}</div></div>`
       : (() => { const nowYm = ymOf(todayISO()), d = S.month === nowYm ? +todayISO().slice(8, 10) : S.month < nowYm ? daysIn(S.month) : 0; return `<div class="fig"><div class="k">Per day</div><div class="v">${d ? money(tt.spent / d) : '—'}</div></div>`; })()}
-  </div>${spec > 0.004 ? `<p class="sum-note">Plus <span class="num">${money(spec)}</span> outside the monthly budget.</p>` : ''}`;
+  </div>${spec > 0.004 ? `<button class="sum-note sum-sp" data-act="sp-sheet" data-y="${esc(S.month.slice(0, 4))}">Plus <span class="num">${money(spec)}</span> ${SP_NAME}${CHEV}</button>` : ''}`;
   // Two filter rows: cards, then categories. The chosen chip moves next to "All" so it's always in view.
   const selFirst = (items, sel) => sel ? items.filter(x => x.id === sel).concat(items.filter(x => x.id !== sel)) : items;
   const accChips = selFirst(accts().map(a => ({ id: a.id, label: a.name })), S.filterAcc);
@@ -1204,17 +1246,16 @@ function savingsSection(ym) {
 // The year so far: gross savings, less each kind of special spending, gives net savings.
 // This month counts as projected.
 function yearRecap(ym, since, nowYm, spName) {
-  const y = ym.slice(0, 4), oc = cats().filter(c => c.type === 'exp' && c.outside), byCat = {};
+  const y = ym.slice(0, 4);
   let g = 0, n = 0, months = 0, special = 0;
   for (let m = 1; m <= 12; m++) {
     const mym = y + '-' + pad(m);
     if (mym < since || mym > nowYm) continue;
     const f = mym === nowYm ? projectMonth(mym) : monthFlow(mym);
     g += f.gross; n += f.saved; special += f.special; months++;
-    monthTx(mym).forEach(t => { if (t.type === 'exp' && isOutside(t.cat)) byCat[t.cat] = (byCat[t.cat] || 0) + spendAmt(t); });
   }
   if (!months) return '';
-  const thisYear = y === nowYm.slice(0, 4), lines = oc.length > 1 ? oc.filter(c => Math.abs(byCat[c.id] || 0) > 0.004).map(c => [c.name, byCat[c.id], c.id]) : [[spName, special, '']];
+  const thisYear = y === nowYm.slice(0, 4), lines = [[spName, special]];
   return `<div class="sv-year"><div class="sv-ch">${esc(y)}${thisYear ? ' so far' : ''}</div><div class="sv-split" style="margin-top:4px;border-top:0;padding-top:0">
     <div><span>Gross savings</span><span class="num">${money(g)}</span></div>
     ${lines.map(([name, v]) => Math.abs(v) < 0.005 ? `<div><span>${esc(name)}</span><span class="num">${money(0)}</span></div>`
@@ -1222,32 +1263,38 @@ function yearRecap(ym, since, nowYm, spName) {
     <div class="net"><span>Net savings</span><span class="num">${money(n)}</span></div></div>
     ${thisYear ? `<p class="sv-note" style="margin-top:2px">${esc(monthName(nowYm))} counted as projected.</p>` : ''}</div>`;
 }
-// Pop-up: every special spending entry in a year, newest month first, each one tappable to edit.
+// Pop-up: the year's Special Spending by category (each trip, then the rest), latest first. A trip
+// that also has spending in another year shows its whole total too. Each entry opens to edit.
 function specialSheet(el, s) {
-  const y = s.y, nowYm = ymOf(todayISO()), oc = cats().filter(c => c.type === 'exp' && c.outside), name = specialName(), groups = [];
-  let total = 0;
-  for (let m = 12; m >= 1; m--) {
+  const y = s.y, nowYm = ymOf(todayISO()), by = {};
+  for (let m = 1; m <= 12; m++) {
     const mym = y + '-' + pad(m);
     if (mym > nowYm) continue;
-    const list = monthTx(mym).filter(t => t.type === 'exp' && isOutside(t.cat)).sort((a, b) => b.d.localeCompare(a.d) || (b.t || 0) - (a.t || 0));
-    if (!list.length) continue;
-    const sum = round2(list.reduce((n, t) => n + spendAmt(t), 0)); total += sum;
-    groups.push({ mym, sum, list });
+    monthTx(mym).forEach(t => { if (t.type === 'exp' && isOutside(t.cat)) (by[t.cat] = by[t.cat] || []).push(t); });
   }
+  const sum = list => round2(list.reduce((n, t) => n + spendAmt(t), 0));
+  const groups = Object.keys(by).map(id => {
+    const list = by[id].sort((a, b) => b.d.localeCompare(a.d) || (b.t || 0) - (a.t || 0)), c = catById(id);
+    const all = hasDates(c) ? allTx().filter(t => t.type === 'exp' && t.cat === id) : list;
+    return { id, c, list, sum: sum(list), whole: all.length > list.length ? sum(all) : null, latest: list[0].d };
+  }).sort((a, b) => b.latest.localeCompare(a.latest));
+  const total = groups.reduce((n, g) => n + g.sum, 0);
   const row = t => `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}"><span class="tx-cat">${esc(fmtDate(t.d))}</span>
-    <span class="tx-main"><span class="tx-m">${esc(t.m || catName(t.cat))}</span><span class="tx-acc">${oc.length > 1 ? esc(catName(t.cat)) + ' · ' : ''}${esc(accShort(t.acc))}</span></span>
+    <span class="tx-main"><span class="tx-m">${esc(t.m || catName(t.cat))}</span><span class="tx-acc">${owedOf(t) ? `<span class="tx-ow">${esc(owerName(t.owed.by))} owe${t.owed.by === 'work' ? 's' : ''} ${money(owedOf(t))}</span> · ` : ''}${esc(accShort(t.acc))}</span></span>
     <span class="tx-amt">${money(spendAmt(t))}</span></button>`;
-  el.innerHTML = `<div class="grab"></div><h2>${esc(name)} · ${esc(y)}</h2>
-    <p class="muted" style="margin-top:-8px">${groups.length ? `<span class="num">${money(total, 0)}</span> in ${groups.length} month${groups.length === 1 ? '' : 's'}. It comes out of net savings, not gross savings or your target.` : `Nothing in ${esc(y)} yet.`}</p>
-    ${groups.map(g => `<div class="day sp-day"><div class="day-h"><span>${esc(monthName(g.mym))}</span><span class="num">${money(g.sum, 0)}</span></div>${g.list.map(row).join('')}</div>`).join('')}
+  const why = atLeast('plan') ? ' It comes out of net savings, not gross savings or your target.' : atLeast('budget') ? " It isn't part of your budgets." : '';
+  el.innerHTML = `<div class="grab"></div><h2>${SP_NAME} · ${esc(y)}</h2>
+    <p class="muted" style="margin-top:-8px">${groups.length ? `<span class="num">${money(total, 0)}</span> in ${esc(y)}.${why}` : `Nothing in ${esc(y)} yet.`}</p>
+    ${groups.map(g => {
+      const sub = [tripRange(g.c), g.whole !== null ? `${money(g.whole, 0)} for the whole trip` : ''].filter(Boolean).join(' · ');
+      return `<div class="day sp-day"><div class="day-h"><span>${esc(catName(g.id))}</span><span class="num">${money(g.sum, 0)}</span></div>${sub ? `<p class="sp-sub">${esc(sub)}</p>` : ''}${g.list.map(row).join('')}</div>`;
+    }).join('')}
     <div class="sheet-actions" style="margin-top:12px"><button class="btn wide" data-act="close-sheet">Close</button></div>`;
 }
-// What special spending is called: the one category outside the budget, or a general name.
-function specialName() { const oc = cats().filter(c => c.type === 'exp' && c.outside); return oc.length === 1 ? oc[0].name : 'Special spending'; }
+const specialName = () => SP_NAME;
 
 function vBudget() {
-  const expCats = cats().filter(c => c.type === 'exp');
-  const inB = expCats.filter(c => !c.outside);
+  const inB = cats().filter(c => c.type === 'exp');
   const total = inB.reduce((s, c) => s + (c.budget > 0 ? c.budget : 0), 0);
   return `<section class="sec"><div class="sec-h"><h2>Monthly budgets</h2><span class="muted" style="font-size:13px">Same every month</span></div>
     <p class="muted" style="font-size:13px;margin:0 0 12px">How much you plan to spend in each category. Leave a box empty for no budget. Changes save as you go, and your progress shows on the Stats tab.</p>
@@ -1268,10 +1315,41 @@ function vBudget() {
       <b class="bgt-total-l">Savings target</b><span class="num bgt-total" id="s-tgt-v">${esc(targetText())}</span>
     </div>
   </section>` : ''}
-  <section class="sec"><div class="sec-h"><h2>Outside the monthly budget</h2></div>
-    <p class="muted" style="font-size:13px;margin:0 0 12px">For one-off or big spending like flights or furniture. It still counts toward your card and account balances, but not toward monthly budgets or the run rate. Stats shows a running total for the year. Tap a category to move it in or out.</p>
-    <div class="chips wrap" role="group" aria-label="Categories outside the monthly budget">${expCats.map(c => `<button class="chip${c.outside ? ' on' : ''}" data-act="toggle-outside" data-id="${esc(c.id)}" aria-pressed="${c.outside ? 'true' : 'false'}">${esc(c.name)}</button>`).join('')}</div>
+  ${spSection()}`;
+}
+// Special Spending in the Budget tab: categories without dates first, then trips, newest first. Trips
+// that ended over a month ago sit under Past trips. Each shows what's been spent in it.
+function spSection() {
+  const spent = {}, cut = addDays(todayISO(), -30);
+  allTx().forEach(t => { if (t.type === 'exp' && isOutside(t.cat)) spent[t.cat] = (spent[t.cat] || 0) + spendAmt(t); });
+  const list = spCats(), trips = list.filter(hasDates).sort((a, b) => b.from.localeCompare(a.from));
+  const now = list.filter(c => !hasDates(c)).concat(trips.filter(c => c.to >= cut)), past = trips.filter(c => c.to < cut);
+  const row = c => `<button class="crow plain" data-act="sp-edit" data-id="${esc(c.id)}"><span class="crow-top"><span class="crow-name">${esc(c.name)}</span><span class="crow-st num">${money(spent[c.id] || 0, 0)}</span></span>${hasDates(c) ? `<span class="crow-amt">${esc(tripRange(c))}</span>` : ''}${CHEV}</button>`;
+  return `<section class="sec"><div class="sec-h"><h2>${SP_NAME}</h2></div>
+    <p class="muted" style="font-size:13px;margin:0 0 4px">Trips and one-offs like furniture. ${atLeast('plan') ? 'They count toward your balances and net savings, not your budgets or savings target.' : "They don't count toward your budgets."} Give a trip its dates and what you spend during them goes under it.</p>
+    ${now.map(row).join('')}${past.length ? `<div class="crow-h">Past trips</div>${past.map(row).join('')}` : ''}
+    <button class="btn small" data-act="sp-new" style="margin-top:10px">Add a trip or category</button>
   </section>`;
+}
+function spSheet(el, s) {
+  const c = s.id ? catById(s.id) : null;
+  el.innerHTML = `<div class="grab"></div><h2>${c ? esc(c.name) : 'New trip or category'}</h2>
+    <label class="field"><span>Name</span><input class="in" id="sc-name" value="${esc(c ? c.name : '')}" maxlength="32" placeholder="Japan trip" autocomplete="off"></label>
+    <div class="row2"><label class="field"><span>From</span><input class="in" id="sc-from" type="date" value="${esc(c && c.from || '')}"></label>
+    <label class="field"><span>To</span><input class="in" id="sc-to" type="date" value="${esc(c && c.to || '')}"></label></div>
+    <p class="muted" style="font-size:13px;margin-top:-4px">For a trip, add its dates. Payments dated within them go under it, except monthly bills. Leave the dates empty for one-offs.</p>
+    <div class="sheet-actions">${c ? `<button class="btn danger" data-act="del-cat" data-id="${esc(c.id)}">Remove</button>` : '<button class="btn" data-act="close-sheet">Cancel</button>'}<button class="btn primary" data-act="sc-save">Save</button></div>`;
+}
+function saveSpCat() {
+  const s = S.sheet, name = $('#sc-name').value.trim(), from = $('#sc-from').value, to = $('#sc-to').value;
+  if (!name) return flagField('sc-name', 'Give it a name.');
+  if (!from !== !to) return toast('Add both dates, or neither.');
+  if (from && to < from) return toast('The trip has to end on or after the day it starts.');
+  const c = s.id ? catById(s.id) : { id: 'c' + newId(), type: 'sp', budget: null };
+  Object.assign(c, { name: name.slice(0, 32) });
+  if (from) Object.assign(c, { from, to }); else { delete c.from; delete c.to; }
+  if (!s.id) st().categories.push(c);
+  saveSettings(); closeSheet(); render(); toast(s.id ? 'Saved.' : `${c.name} added.`);
 }
 
 // Net at the end of this month: today's net, plus income still to come, less spending still to come.
@@ -1399,7 +1477,7 @@ function vReview() {
   h += `<div class="note">${notes.join(' ')}</div>`;
   h += `<div class="rv-tools">
     <button class="btn small" data-act="rv-all">${I.rows.every(r => r.sel) ? 'Untick all' : 'Tick all'}</button>
-    <select class="in" id="bulk-cat" aria-label="Set category for ticked"><option value="">Set category for ticked…</option>${catOptions('exp', '')}</select>
+    <select class="in" id="bulk-cat" aria-label="Set category for ticked"><option value="">Set category for ticked…</option>${catOptionsFor('ref', '')}</select>
   </div>`;
   h += `<div id="rv-list">${vGroups()}</div>`;
   h += `<button class="btn wide" data-act="rv-add" style="margin-top:4px">Add a missed line</button>`;
@@ -1430,8 +1508,9 @@ function vSource() {
   return `<div class="src"><button class="btn ghost small" data-act="rv-src">${I.showSource ? 'Hide' : 'Show'} ${I.fromInbox ? 'the emails' : 'recognised text'}</button>${I.showSource ? `<pre class="num">${esc(I.source)}</pre>` : ''}</div>`;
 }
 function vRow(r, i) {
-  const type = r.kind === 'inc' ? 'inc' : 'exp', isX = r.kind === 'xfer', isB = r.kind === 'back';
+  const isX = r.kind === 'xfer', isB = r.kind === 'back';
   const tags = [];
+  if (r.trip && r.kind === 'sp' && r.cat === r.trip && catById(r.trip)) tags.push(`<span class="tag acc">During ${esc(catName(r.trip))}</span>`);
   if (isX) tags.push('<span class="tag acc">Transfer, not spending</span>');
   if (isB) tags.push('<span class="tag good">Payback, not income</span>');
   if (r.dup === 'ledger') tags.push('<span class="tag warn">Already in ledger?</span>');
@@ -1452,7 +1531,7 @@ function vRow(r, i) {
       <div class="rv-l2">
         <input class="in" type="date" data-f="d" value="${esc(r.d)}" aria-label="Date">
         <select class="in" data-f="kind" aria-label="Type">${kindOptions(r.kind, true)}</select>
-        ${isX ? '' : isB ? `<select class="in" data-f="by" aria-label="Paid back by">${owerOptions(r.by || 'work')}</select>` : `<select class="in${r.conf === 'low' && !r.learned ? ' unsure' : ''}" data-f="cat" aria-label="Category">${catOptions(type, r.cat)}</select>`}
+        ${isX ? '' : isB ? `<select class="in" data-f="by" aria-label="Paid back by">${owerOptions(r.by || 'work')}</select>` : `<select class="in${r.conf === 'low' && !r.learned ? ' unsure' : ''}" data-f="cat" aria-label="Category">${catOptionsFor(r.kind, r.cat, r.d)}</select>`}
       </div>
       ${isX ? `<div class="rv-l3"><label><span>From</span><select class="in${r.from ? '' : ' unsure'}" data-f="from">${pickOptions(r.from)}</select></label><label><span>To</span><select class="in${r.to ? '' : ' unsure'}" data-f="to">${pickOptions(r.to)}</select></label></div>` : ''}
       <div class="rv-meta">${tags.join('')}${r.raw ? `<span class="raw num">${esc(r.raw)}</span>` : ''}</div>
@@ -1460,7 +1539,7 @@ function vRow(r, i) {
 }
 function vFoot() {
   const sel = S.imp.rows.filter(r => r.sel);
-  const net = sel.reduce((s, r) => s + (r.kind === 'exp' ? (r.amt || 0) : r.kind === 'ref' ? -(r.amt || 0) : 0), 0);
+  const net = sel.reduce((s, r) => s + (r.kind === 'exp' || r.kind === 'sp' ? (r.amt || 0) : r.kind === 'ref' ? -(r.amt || 0) : 0), 0);
   return `<div class="t"><span>${sel.length} of ${S.imp.rows.length} ticked</span><span class="num">${money(net)} spend</span></div>
     <button class="btn primary" data-act="imp-approve" ${sel.length ? '' : 'disabled'}>Add ${sel.length} to ledger</button>`;
 }
@@ -1686,6 +1765,16 @@ async function readStatements() {
   I.phase = '';
   render();
 }
+// A spending line dated during a trip goes under the trip, except monthly bills. Its own category is
+// kept, so moving the date out of the trip puts it back.
+function tripDefault(r) {
+  if (r.picked) return r;
+  const trip = tripOn(r.d);
+  if (r.kind === 'exp' && trip && !isMonthly(catById(r.cat))) Object.assign(r, { kind: 'sp', home: r.cat, cat: trip.id, trip: trip.id, conf: 'high' });
+  else if (r.trip && r.kind === 'sp' && r.cat === r.trip && trip && trip.id !== r.trip) Object.assign(r, { cat: trip.id, trip: trip.id });
+  else if (r.trip && r.kind === 'sp' && r.cat === r.trip && !trip) { Object.assign(r, { kind: 'exp', cat: catFits('exp', r.home) ? r.home : fallbackCat('exp') }); delete r.trip; }
+  return r;
+}
 function fallbackCat(type) { return type === 'inc' ? (catById('cashback') ? 'cashback' : firstCat('inc')) : (catById('other') ? 'other' : firstCat('exp')); }
 const dayDiff = (a, b) => Math.abs((new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 864e5);
 function buildRows(results, notes) {
@@ -1710,10 +1799,11 @@ function buildRows(results, notes) {
     skipped.push(...left);
     res.transactions.forEach(t => {
       if (!(t.amount > 0)) return;
-      const type = t.kind === 'inc' ? 'inc' : 'exp';
-      let cat = t.cat, conf = t.how === 'none' ? 'low' : 'high';
-      if (!cat || !catById(cat) || catById(cat).type !== type) { cat = fallbackCat(type); conf = 'low'; }
-      rows.push({ g: gi, sel: true, d: t.date || today, dateGuess: !t.date || t.dateGuessed, dateCarried: !!t.dateCarried, m: t.merchant || 'Unnamed', raw: t.raw, amt: t.amount, kind: t.kind, cat, acc, conf, learned: t.how === 'learned', fx: t.fx || '', dup: false });
+      // A merchant remembered under Special Spending comes in as Special Spending.
+      let kind = t.kind, cat = t.cat, conf = t.how === 'none' ? 'low' : 'high';
+      if (kind === 'exp' && isOutside(cat)) kind = 'sp';
+      if (!catFits(kind, cat)) { cat = fallbackCat(kind === 'inc' ? 'inc' : 'exp'); conf = 'low'; }
+      rows.push(tripDefault({ g: gi, sel: true, d: t.date || today, dateGuess: !t.date || t.dateGuessed, dateCarried: !!t.dateCarried, m: t.merchant || 'Unnamed', raw: t.raw, amt: t.amount, kind, cat, acc, conf, learned: t.how === 'learned', fx: t.fx || '', dup: false }));
     });
   });
   I.rows = rows; I.groups = groups; I.skipped = skipped; I.notes = notes.join(' '); I.status = 'review';
@@ -1759,7 +1849,7 @@ function addBlankRow() {
   const I = S.imp, last = I.rows[I.rows.length - 1];
   if (!I.groups || !I.groups.length) I.groups = [{ label: 'Added by hand', thumb: '', acc: I.accountId, why: '', auto: false, signals: null, skipped: [] }];
   const g = last ? last.g : I.groups.length - 1;
-  I.rows.push({ g, sel: true, d: last ? last.d : todayISO(), dateGuess: false, m: '', raw: '', amt: NaN, kind: 'exp', cat: fallbackCat('exp'), acc: I.groups[g].acc, conf: 'high', learned: false, fx: '', dup: false });
+  I.rows.push(tripDefault({ g, sel: true, d: last ? last.d : todayISO(), dateGuess: false, m: '', raw: '', amt: NaN, kind: 'exp', cat: fallbackCat('exp'), acc: I.groups[g].acc, conf: 'high', learned: false, fx: '', dup: false }));
   render();
   const inputs = document.querySelectorAll('.rv [data-f="m"]');
   if (inputs.length) inputs[inputs.length - 1].focus();
@@ -1768,7 +1858,7 @@ function approveRows() {
   const I = S.imp;
   let bad = 0;
   I.rows.forEach(r => {
-    const where = r.kind === 'xfer' ? accById(r.from) && accById(r.to) && r.from !== r.to : r.kind === 'back' ? accById(r.acc) : accById(r.acc) && catById(r.cat);
+    const where = r.kind === 'xfer' ? accById(r.from) && accById(r.to) && r.from !== r.to : r.kind === 'back' ? accById(r.acc) : accById(r.acc) && catFits(r.kind, r.cat);
     r.invalid = r.sel && (!(r.amt > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(r.d) || !where); if (r.invalid) bad++;
   });
   if (bad) { render(); toast(`Fix ${bad} highlighted line${bad === 1 ? '' : 's'} first: each needs a date, an amount above zero, and a card and category (or both accounts for a transfer).`); return; }
@@ -1790,8 +1880,9 @@ function approveRows() {
     }
     const m = (r.m || '').trim().slice(0, 60) || catName(r.cat);
     mo()[ym].txns.push(paidIfAhead({ id: newId(), d: r.d, amt: round2(r.kind === 'ref' ? -r.amt : r.amt), type: r.kind === 'inc' ? 'inc' : 'exp', acc: r.acc, cat: r.cat, m, raw: r.raw, src, t: Date.now() }));
+    // Remember the merchant for next time, but not under a trip: that's only for its dates.
     const k = SnapParse.normKey(r.raw);
-    if (k) { delete rules[k]; rules[k] = { c: r.cat, m }; }
+    if (k && !hasDates(catById(r.cat))) { delete rules[k]; rules[k] = { c: r.cat, m }; }
   });
   const keys = Object.keys(rules);
   if (keys.length > 800) keys.slice(0, keys.length - 800).forEach(k => delete rules[k]);
@@ -1814,7 +1905,7 @@ function approveRows() {
   S.tab = 'ledger'; S.month = topYm; S.filterAcc = null; S.filterCat = null;
   render();
   window.scrollTo(0, 0);
-  const spend = round2(sel.reduce((n, r) => n + (r.kind === 'exp' ? r.amt : r.kind === 'ref' ? -r.amt : 0), 0)), xN = sel.filter(r => r.kind === 'xfer').length;
+  const spend = round2(sel.reduce((n, r) => n + (r.kind === 'exp' || r.kind === 'sp' ? r.amt : r.kind === 'ref' ? -r.amt : 0), 0)), xN = sel.filter(r => r.kind === 'xfer').length;
   celebrate({
     badge: `+${sel.length} added${S.demo ? ' (example)' : ''}`,
     title: S.demo ? 'Added to the example ledger' : 'Added to your ledger',
@@ -2078,11 +2169,16 @@ function renderSheet() {
         <div class="sheet-actions"><button class="btn danger" data-act="del-tx">Delete</button><button class="btn" data-act="close-sheet">Close</button></div>`;
       return;
     }
-    const k = t ? kindOf(t) : (s.kind0 || 'exp');
-    const type = k === 'inc' ? 'inc' : 'exp', isX = k === 'xfer', isB = k === 'back';
+    let k = t ? kindOf(t) : (s.kind0 || 'exp');
+    const defDate = t ? t.d : (S.month === ymOf(todayISO()) ? todayISO() : S.month + '-01');
+    // A new entry dated during a trip goes under the trip, unless you're looking at one category.
+    let defCat = t && t.cat ? t.cat : S.filterCat || '';
+    if (!t && k === 'exp' && isOutside(defCat)) k = 'sp';
+    else if (!t && k === 'exp' && !defCat && tripOn(defDate)) { k = 'sp'; defCat = tripOn(defDate).id; s.tripAuto = true; }
+    if (!catFits(k, defCat)) defCat = k === 'sp' ? firstSp(defDate) : firstCat(catTypeOf(k));
+    const isX = k === 'xfer', isB = k === 'back';
     const defAcc = t ? t.acc : (S.filterAcc || ((k === 'inc' || k === 'back') && (accts().find(a => a.kind === 'debit') || {}).id) || (accts()[0] || {}).id);
     const defTo = t && t.to ? t.to : suggestTo(defAcc);
-    const defDate = t ? t.d : (S.month === ymOf(todayISO()) ? todayISO() : S.month + '-01');
     el.innerHTML = `<div class="grab"></div><h2>${t ? (isX ? 'Edit transfer' : isB ? 'Edit payback' : 'Edit transaction') : isB ? 'Record a payback' : 'New transaction'}</h2>
       ${accts().length ? '' : '<div class="err">Add a card first in the Cards tab.</div>'}
       <label class="field"><span>Merchant or note</span><input class="in" id="f-m" value="${esc(t ? t.m : '')}" maxlength="60" autocomplete="off" autocorrect="off" enterkeyhint="next"></label>
@@ -2090,7 +2186,7 @@ function renderSheet() {
       ${t ? '' : `<div id="f-sugg"${isX || isB ? ' hidden' : ''}>${suggHtml(suggFor(''))}</div>`}
       <label class="field"><span>Amount</span><input class="in num amt" id="f-amt" inputmode="decimal" value="${t ? Math.abs(t.amt).toFixed(2) : ''}" placeholder="0.00"></label>
       <div class="row2 fit"><label class="field"><span>Type</span><select class="in" id="f-kind">${kindOptions(k, accts().length > 1)}</select></label>
-      <label class="field" id="f-cat-w"${isX || isB ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptions(type, t && t.cat ? t.cat : (S.filterCat || firstCat(type)))}</select></label></div>
+      <label class="field" id="f-cat-w"${isX || isB ? ' hidden' : ''}><span>Category</span><select class="in" id="f-cat">${catOptionsFor(k, defCat, defDate)}</select></label></div>
       <div class="row2"><label class="field"><span id="f-acc-l">${isX ? 'From' : isB ? 'Into' : 'Card'}</span><select class="in" id="f-acc">${accOptions(defAcc)}</select></label>
       <label class="field"><span>Date</span><input class="in" id="f-date" type="date" value="${esc(defDate)}"></label></div>
       <label class="field" id="f-by-w"${isB ? '' : ' hidden'}><span>Paid back by</span><select class="in" id="f-by">${owerOptions(t && t.by ? t.by : s.by || 'work')}</select></label>
@@ -2098,7 +2194,7 @@ function renderSheet() {
       <p class="muted" id="f-b-note" style="font-size:13px;margin:6px 0 12px"${isB ? '' : ' hidden'}>Tick what this pays for, or tick nothing to clear the oldest first. Paybacks aren't income.</p>
       <label class="field" id="f-to-w"${isX ? '' : ' hidden'}><span>To</span><select class="in" id="f-to">${accOptions(defTo)}</select></label>
       <p class="muted" id="f-x-note" style="font-size:13px;margin-top:-4px"${isX ? '' : ' hidden'}>A transfer moves money between your own accounts, like paying a card bill or topping up a wallet. It isn't spending.</p>
-      <div id="f-ow-w"${k === 'exp' && (atLeast('plan') || (t && t.owed)) ? '' : ' hidden'}>
+      <div id="f-ow-w"${(k === 'exp' || k === 'sp') && (atLeast('plan') || (t && t.owed)) ? '' : ' hidden'}>
         <div class="row2"><label class="field"><span>Paid back by</span><select class="in" id="f-ow"><option value="">Nobody, it's mine</option>${owerOptions(t && t.owed ? t.owed.by : '')}</select></label>
         <label class="field" id="f-owa-w"${t && t.owed ? '' : ' hidden'}><span>They owe</span><input class="in num" id="f-owa" inputmode="decimal" placeholder="All of it" value="${t && t.owed ? t.owed.amt.toFixed(2) : ''}"></label></div>
         <p class="muted" id="f-ow-note" style="font-size:13px;margin-top:-4px"${t && t.owed ? '' : ' hidden'}></p>
@@ -2134,6 +2230,8 @@ function renderSheet() {
     renderWelcome(el, s);
   } else if (s.kind === 'special') {
     specialSheet(el, s);
+  } else if (s.kind === 'spcat') {
+    spSheet(el, s);
   } else if (s.kind === 'stat') {
     statSheet(el, s);
   } else if (s.kind === 'settings') {
@@ -2159,8 +2257,12 @@ function renderSheet() {
       <label class="field"><span>When you add entries</span><select class="in" data-set="celebrate">${[['screen', 'Success screen with the bunny'], ['sweep', 'Bunny sweeps up the screen'], ['hop', 'Bunny hop'], ['off', 'Just a message']].map(([v, l]) => `<option value="${v}"${celebrateMode() === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="field"><span>Currency symbol</span><input class="in" data-set="cur" value="${esc(cur())}" maxlength="4" style="max-width:120px"></label>
       <div class="sub-h">Expense categories</div><p class="muted" style="font-size:13px;margin:-4px 0 8px">Use the arrows to set the order they appear in across the app.</p><div class="cat-list">${cats().filter(c => c.type === 'exp').map(catRow).join('')}</div>
+      <div class="sub-h">${SP_NAME} categories</div><div class="cat-list">${spCats().map(catRow).join('')}</div>
+      ${atLeast('budget') ? `<p class="muted" style="font-size:13px;margin:6px 0 0">Give a trip its dates in the Budget tab.</p>` : ''}
       <div class="sub-h">Income categories</div><div class="cat-list">${cats().filter(c => c.type === 'inc').map(catRow).join('')}</div>
-      <div class="row2" style="grid-template-columns:1fr 110px auto"><input class="in" id="new-cat" placeholder="New category" maxlength="32"><select class="in" id="new-cat-type"><option value="exp">Expense</option><option value="inc">Income</option></select><button class="btn small" data-act="add-cat" style="height:44px">Add</button></div>
+      <div class="sub-h">Add a category</div>
+      <input class="in" id="new-cat" placeholder="New category" maxlength="32" aria-label="New category name">
+      <div class="row2" style="grid-template-columns:1fr auto;margin-top:8px"><select class="in" id="new-cat-type" aria-label="Kind"><option value="exp">Expense</option><option value="sp">${SP_NAME}</option><option value="inc">Income</option></select><button class="btn small" data-act="add-cat" style="height:44px">Add</button></div>
       ${inboxSettings(s)}
       <div class="sub-h">Scanning</div>
       <div class="kv"><span>Remembered merchants</span><span>${ruleN} ${ruleN ? '<button class="btn ghost small" data-act="clear-rules">Forget all</button>' : ''}</span></div>
@@ -2205,6 +2307,7 @@ function saveTx() {
   if (!(amt > 0)) return flagField('f-amt', 'Enter an amount above zero.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return toast('Pick a date.');
   if (!accById(acc)) return toast('Add a card first in the Cards tab.');
+  if (kind !== 'xfer' && kind !== 'back' && !catFits(kind, cat)) return toast('Pick a category.');
   let rec;
   if (kind === 'xfer') {
     const to = $('#f-to').value;
@@ -2219,7 +2322,7 @@ function saveTx() {
     if (alloc.length) rec.alloc = alloc;
   } else {
     rec = { d, amt: round2(kind === 'ref' ? -amt : amt), type: kind === 'inc' ? 'inc' : 'exp', acc, cat, m: m.slice(0, 60) };
-    const by = kind === 'exp' ? $('#f-ow').value : '';
+    const by = kind === 'exp' || kind === 'sp' ? $('#f-ow').value : '';
     if (by) {
       const oa = parseAmt($('#f-owa').value), o = isFinite(oa) && oa > 0 ? Math.min(round2(oa), rec.amt) : rec.amt;
       rec.owed = { by, amt: o };
@@ -2238,7 +2341,8 @@ function saveTx() {
       if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
       mo()[ym].txns.push(apply(old)); saveMonth(ym);
     }
-    if (old.raw && rec.type !== 'xfer' && rec.type !== 'back') { const k = SnapParse.normKey(old.raw); if (k) { const r = st().rules || (st().rules = {}); delete r[k]; r[k] = { c: cat, m: rec.m }; saveSettings(); } }
+    // Remember the merchant's category for next time, but not a trip: it's only for those dates.
+    if (old.raw && rec.type !== 'xfer' && rec.type !== 'back' && !hasDates(catById(cat))) { const k = SnapParse.normKey(old.raw); if (k) { const r = st().rules || (st().rules = {}); delete r[k]; r[k] = { c: cat, m: rec.m }; saveSettings(); } }
   } else {
     if (!mo()[ym]) mo()[ym] = { month: ym, txns: [] };
     mo()[ym].txns.push(Object.assign({ id: newId(), raw: '', src: 'manual', t: Date.now() }, rec)); saveMonth(ym);
@@ -2471,12 +2575,9 @@ document.addEventListener('click', e => {
       toast(isMonthly(c) ? `${c.name} is now a monthly bill.` : `${c.name} is back to daily.`);
       break;
     }
-    case 'toggle-outside': {
-      const c = catById(id); if (!c) break;
-      c.outside = !c.outside; saveSettings(); render();
-      toast(c.outside ? `${c.name} is now outside the monthly budget.` : `${c.name} is back in the monthly budget.`);
-      break;
-    }
+    case 'sp-new': openSheet({ kind: 'spcat' }); break;
+    case 'sp-edit': openSheet({ kind: 'spcat', id }); break;
+    case 'sc-save': saveSpCat(); break;
     case 'goto-savings': { const el = document.getElementById('savings'); if (el) { el.scrollIntoView({ block: 'start' }); window.scrollBy(0, -70); } break; }
     case 'sp-sheet': openSheet({ kind: 'special', y: b.dataset.y }); break;
     case 'budget-edit': S.budgetEdit = true; render(); break;
@@ -2508,7 +2609,9 @@ document.addEventListener('click', e => {
       if (n) { toast(`${catName(id)} is used by ${n} transaction${n === 1 ? '' : 's'}. Recategorise them first.`); break; }
       const c = catById(id);
       if (cats().filter(x => x.type === c.type).length <= 1) { toast('Keep at least one category of each type.'); break; }
-      st().categories = cats().filter(x => x.id !== id); saveSettings(); renderSheet(); render();
+      st().categories = cats().filter(x => x.id !== id); saveSettings();
+      if (S.sheet && S.sheet.kind === 'spcat') { closeSheet(); toast(`${c.name} removed.`); } else renderSheet();
+      render();
       break;
     }
     case 'clear-rules':
@@ -2540,6 +2643,19 @@ document.addEventListener('click', e => {
   }
 });
 
+// The entry sheet: shows the fields that go with its type, and a category that fits the type.
+function syncKind(kind) {
+  const x = kind === 'xfer', bk = kind === 'back';
+  $('#f-to-w').hidden = !x; $('#f-x-note').hidden = !x; $('#f-cat-w').hidden = x || bk; $('#f-acc-l').textContent = x ? 'From' : bk ? 'Into' : 'Card';
+  $('#f-by-w').hidden = !bk; $('#f-b-note').hidden = !bk; $('#f-set-w').hidden = !bk; $('#f-ow-w').hidden = !(kind === 'exp' || kind === 'sp') || !atLeast('plan');
+  if (bk) { $('#f-set').innerHTML = settleList($('#f-by').value, null); }
+  const sg = $('#f-sugg'); if (sg) sg.hidden = x || bk;
+  if (bk) return;
+  if (x) { const to = $('#f-to'), from = $('#f-acc'); if (to.value === from.value) { const g = suggestTo(from.value); if (g) to.value = g; } return; }
+  const cs = $('#f-cat'), d = $('#f-date').value;
+  const keep = catFits(kind, cs.value) ? cs.value : kind === 'sp' ? firstSp(d) : firstCat(catTypeOf(kind));
+  cs.innerHTML = catOptionsFor(kind, keep, d);
+}
 function onField(e, isChange) {
   const el = e.target;
   if (!isChange && el.classList && el.classList.contains('unsure') && (el.id === 'c-name' || el.id === 'f-amt' || el.id === 'b-val' || el.id === 'ib-url')) el.classList.remove('unsure');
@@ -2554,7 +2670,17 @@ function onField(e, isChange) {
   if (el.id === 'imp-file' && isChange) { addFiles(el.files); el.value = ''; return; }
   if (el.id === 'f-m' && !isChange && S.sheet && S.sheet.kind === 'txn' && !S.sheet.id) { const w = $('#f-sugg'); if (w) w.innerHTML = suggHtml(suggFor(el.value)); return; }
   if (el.id === 'b-val') { const d = $('#b-diff'); if (d && S.sheet) d.innerHTML = balDiffNote(S.sheet.id, parseAmt(el.value)); return; }
-  if (el.id === 'f-date' && $('#f-paid-w')) { $('#f-paid-w').hidden = !(el.value > todayISO()); return; }
+  if (el.id === 'f-date' && S.sheet && S.sheet.kind === 'txn' && $('#f-kind')) {
+    if ($('#f-paid-w')) $('#f-paid-w').hidden = !(el.value > todayISO());
+    if (!isChange) return;
+    const kind = $('#f-kind'), cs = $('#f-cat'), trip = tripOn(el.value), sh = S.sheet;
+    // A new entry follows the trip its date falls in, until you pick the type or category yourself.
+    if (!sh.id && !sh.kindTouched && kind.value === 'exp' && trip && !isMonthly(catById(cs.value))) { kind.value = 'sp'; sh.tripAuto = true; syncKind('sp'); cs.innerHTML = catOptionsFor('sp', trip.id, el.value); }
+    else if (!sh.id && !sh.kindTouched && kind.value === 'sp' && sh.tripAuto && !trip) { kind.value = 'exp'; sh.tripAuto = false; cs.innerHTML = catOptionsFor('exp', firstCat('exp'), el.value); syncKind('exp'); }
+    else if (kind.value === 'sp' || kind.value === 'ref') cs.innerHTML = catOptionsFor(kind.value, !sh.id && !sh.kindTouched && sh.tripAuto && trip ? trip.id : cs.value, el.value);
+    return;
+  }
+  if ((el.id === 'f-kind' || el.id === 'f-cat') && isChange && S.sheet) S.sheet.kindTouched = true;
   if (el.id === 'f-paid') { $('#f-paid-d-w').hidden = !el.checked; return; }
   if (el.id === 'f-acc' && isChange && $('#f-kind') && $('#f-kind').value === 'xfer') {
     const to = $('#f-to'); if (to && to.value === el.value) { const g = suggestTo(el.value); if (g) to.value = g; }
@@ -2564,25 +2690,14 @@ function onField(e, isChange) {
   if (el.id === 'f-by' && isChange) { $('#f-set').innerHTML = settleList(el.value, null); if (S.sheet.amtAuto) { $('#f-amt').value = ''; } return; }
   if (el.id === 'f-amt' && !isChange && S.sheet) S.sheet.amtAuto = false;
   if (el.id === 'f-ow' || el.id === 'f-owa' || (el.id === 'f-amt' && $('#f-ow'))) { updateOwed(); if (el.id !== 'f-amt') return; }
-  if (el.id === 'f-kind' && isChange) {
-    const x = el.value === 'xfer', bk = el.value === 'back';
-    $('#f-to-w').hidden = !x; $('#f-x-note').hidden = !x; $('#f-cat-w').hidden = x || bk; $('#f-acc-l').textContent = x ? 'From' : bk ? 'Into' : 'Card';
-    $('#f-by-w').hidden = !bk; $('#f-b-note').hidden = !bk; $('#f-set-w').hidden = !bk; $('#f-ow-w').hidden = el.value !== 'exp' || !atLeast('plan');
-    if (bk) { $('#f-set').innerHTML = settleList($('#f-by').value, null); }
-    const sg = $('#f-sugg'); if (sg) sg.hidden = x || bk;
-    if (bk) return;
-    if (x) { const to = $('#f-to'), from = $('#f-acc'); if (to.value === from.value) { const g = suggestTo(from.value); if (g) to.value = g; } return; }
-    const type = el.value === 'inc' ? 'inc' : 'exp', cs = $('#f-cat');
-    const keep = catById(cs.value) && catById(cs.value).type === type ? cs.value : firstCat(type);
-    cs.innerHTML = catOptions(type, keep); return;
-  }
+  if (el.id === 'f-kind' && isChange) { syncKind(el.value); return; }
   if (el.dataset.set && isChange) {
     if (el.dataset.set === 'budget') {
       const c = catById(el.dataset.id); if (!c) return;
       const v = parseAmt(el.value); c.budget = v > 0 ? round2(v) : null;
       el.value = c.budget ? c.budget : '';
       saveSettings();
-      const t = $('#bgt-total'); if (t) t.textContent = money(cats().filter(x => x.type === 'exp' && !x.outside).reduce((s, x) => s + (x.budget > 0 ? x.budget : 0), 0), 0);
+      const t = $('#bgt-total'); if (t) t.textContent = money(cats().filter(x => x.type === 'exp').reduce((s, x) => s + (x.budget > 0 ? x.budget : 0), 0), 0);
       const g = $('#s-tgt-v'); if (g) g.textContent = targetText();
       return;
     }
@@ -2610,7 +2725,7 @@ function onField(e, isChange) {
     S.imp.rows.forEach(r => {
       if (!r.sel) return;
       if (el.id === 'bulk-acc') { r.acc = v; n++; }
-      else if (r.kind !== 'inc' && r.kind !== 'xfer' && r.kind !== 'back') { r.cat = v; r.conf = 'high'; r.learned = false; n++; }
+      else if (r.kind !== 'inc' && r.kind !== 'xfer' && r.kind !== 'back') { if (r.kind !== 'ref') r.kind = isOutside(v) ? 'sp' : 'exp'; r.cat = v; r.conf = 'high'; r.learned = false; r.picked = true; delete r.trip; n++; }
     });
     $('#rv-list').innerHTML = vGroups(); el.value = '';
     toast(`Updated ${n} ticked line${n === 1 ? '' : 's'}.`);
@@ -2626,15 +2741,21 @@ function onField(e, isChange) {
     if (r.kind === 'back' && !r.by) r.by = 'work';
     if (r.kind === 'xfer' && prev !== 'xfer') {
       // Money out of this card or account (an expense line) goes to another. Money in came from one.
-      r.dir = prev === 'exp' ? 'out' : 'in';
+      r.dir = prev === 'exp' || prev === 'sp' ? 'out' : 'in';
       const other = r.dir === 'in' ? suggestFrom(r.acc) : suggestTo(r.acc, r.raw || '', 'payment');
       r.from = r.dir === 'in' ? other : r.acc; r.to = r.dir === 'in' ? r.acc : other;
     }
-    const type = r.kind === 'inc' ? 'inc' : 'exp';
-    if (!catById(r.cat) || catById(r.cat).type !== type) r.cat = type === 'inc' ? (catById('cashback') ? 'cashback' : firstCat('inc')) : (catById('other') ? 'other' : firstCat('exp'));
+    delete r.trip; r.picked = true;
+    if (!catFits(r.kind, r.cat)) r.cat = r.kind === 'inc' ? fallbackCat('inc') : r.kind === 'sp' ? firstSp(r.d) : fallbackCat('exp');
     row.outerHTML = vRow(r, +row.dataset.i);
   }
-  else if (f === 'cat') { r.cat = el.value; r.conf = 'high'; el.classList.remove('unsure'); }
+  else if (f === 'cat') { r.cat = el.value; r.conf = 'high'; r.picked = true; el.classList.remove('unsure'); }
+  else if (f === 'd') {
+    r.d = el.value;
+    // A new date can move a line into or out of a trip, unless you picked its type or category.
+    const was = r.kind + '|' + r.cat;
+    if (isChange && /^\d{4}-\d{2}-\d{2}$/.test(r.d)) { tripDefault(r); if (r.kind + '|' + r.cat !== was) { row.outerHTML = vRow(r, +row.dataset.i); const foot = $('#rv-foot'); if (foot) foot.innerHTML = vFoot(); return; } }
+  }
   else if (f === 'from' || f === 'to') { r[f] = el.value; el.classList.toggle('unsure', !el.value); }
   else if (f === 'by') { r.by = el.value; }
   else r[f] = el.value;

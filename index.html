@@ -129,6 +129,8 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .tgl{display:flex;gap:10px;align-items:center;font-size:15px;margin:2px 0 12px}
 .tgl input{width:20px;height:20px;flex:none;accent-color:var(--accent)}
 .sum-note{font-size:13px;color:var(--muted);margin:-8px 0 12px}
+.sum-sp{display:inline-flex;align-items:center;gap:4px;text-align:left;min-height:32px;margin-top:-12px;margin-bottom:6px}
+.sum-sp .num{color:var(--ink-2)} .sum-sp .chev{width:14px;height:14px}
 .empty{text-align:center;color:var(--muted);padding:40px 16px;background:var(--surface);border-radius:14px}
 .empty b{display:block;color:var(--ink);font-size:16px;margin-bottom:4px}
 .fab{position:fixed;right:max(16px,calc(50% - 264px));bottom:calc(var(--tabh) + 16px + env(safe-area-inset-bottom,0px));width:52px;height:52px;border-radius:16px;background:var(--ink);color:var(--bg);display:grid;place-items:center;box-shadow:var(--shadow);z-index:5}
@@ -257,6 +259,7 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .sv-split .sv-sp{display:grid;grid-template-columns:1fr auto 16px;align-items:center;gap:6px;min-height:40px;padding-block:6px;font-size:14px;color:var(--ink-2);width:100%;text-align:left}
 .sv-split .sv-sp .chev{width:16px;height:16px;color:var(--muted)}
 .sp-day{background:var(--surface-2)} .sp-day .tx{border-top-color:var(--line)}
+.sp-sub{font-size:12px;color:var(--muted);margin:-4px 14px 6px}
 .sv-cap{display:flex;justify-content:flex-end;font-size:13px;margin-top:5px}
 
 /* stats */
@@ -383,7 +386,7 @@ input[type=date].in::-webkit-datetime-edit{padding:0}
 .rv-amt{position:relative}
 .rv-amt .in{text-align:right;font-family:var(--mono);padding-left:28px}
 .rv-amt .cur{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px;font-family:var(--mono)}
-.rv-l2{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,0.85fr);gap:8px}
+.rv-l2{display:grid;grid-template-columns:minmax(0,0.9fr) minmax(0,1.1fr);gap:8px}
 .rv-l2 [data-f=cat]{grid-column:1 / -1}
 .rv-l2 .in{height:40px;font-size:15px}
 .rv-l3{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
