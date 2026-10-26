@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.22.0';
+const APP_VERSION = '1.22.1';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -755,7 +755,7 @@ function vLedger() {
         return `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}">
           <span class="tx-cat">${esc(catName(t.cat))}</span>
           <span class="tx-main"><span class="tx-m">${esc(t.m || catName(t.cat))}</span><span class="tx-acc">${owedOf(t) ? `<span class="tx-ow">${esc(owerName(t.owed.by))} owe${t.owed.by === 'work' ? 's' : ''} ${money(owedOf(t))}</span> · ` : ''}${esc(accName(t.acc))}${k === 'ref' ? ' · Refund' : ''}${whenTag(t)}</span></span>
-          <span class="tx-amt ${k}">${k === 'inc' ? '+' : ''}${money(k === 'ref' ? Math.abs(t.amt) : t.amt)}</span>
+          ${owedOf(t) ? owedAmt(t) : `<span class="tx-amt ${k}">${k === 'inc' ? '+' : ''}${money(k === 'ref' ? Math.abs(t.amt) : t.amt)}</span>`}
         </button>`;
       }).join('')}</section>`;
   }).join('');
@@ -864,6 +864,11 @@ function spentOn(ym, iso, ids) {
 // "For the next 19 days, today included." and the plan it compares with.
 const daysPhrase = P => P.daysLeft === 1 ? `for today, the last day of ${esc(monthName(P.ym))}` : `for the next ${P.daysLeft} days, today included`;
 const listNames = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+// An expense someone owes you part of: your share leads, with the full charge dimmed under it, so a
+// day's amounts add up to its total. Owed in full, none of it is your spending, so it's dimmed like a
+// transfer.
+const owedAmt = t => spendAmt(t) < 0.005 ? `<span class="tx-amt xfer">${money(t.amt)}</span>`
+  : `<span class="tx-amt">${money(spendAmt(t))}<small class="tx-of">of ${money(t.amt)}</small></span>`;
 const pillOf = x => x ? `<span class="pill ${x.k}">${x.icon || ''}${esc(x.label)}</span>` : '';
 // A category against its own budget: one status, in words, the same for daily and monthly ones.
 // Monthly bills aren't paced, so they stay on track until they go over budget.
@@ -1281,7 +1286,7 @@ function specialSheet(el, s) {
   const total = groups.reduce((n, g) => n + g.sum, 0);
   const row = t => `<button class="tx" data-act="edit-tx" data-id="${esc(t.id)}" data-ym="${esc(ymOf(t.d))}"><span class="tx-cat">${esc(fmtDate(t.d))}</span>
     <span class="tx-main"><span class="tx-m">${esc(t.m || catName(t.cat))}</span><span class="tx-acc">${owedOf(t) ? `<span class="tx-ow">${esc(owerName(t.owed.by))} owe${t.owed.by === 'work' ? 's' : ''} ${money(owedOf(t))}</span> · ` : ''}${esc(accShort(t.acc))}</span></span>
-    <span class="tx-amt">${money(spendAmt(t))}</span></button>`;
+    ${owedOf(t) ? owedAmt(t) : `<span class="tx-amt">${money(spendAmt(t))}</span>`}</button>`;
   const why = atLeast('plan') ? ' It comes out of net savings, not gross savings or your target.' : atLeast('budget') ? " It isn't part of your budgets." : '';
   el.innerHTML = `<div class="grab"></div><h2>${SP_NAME} · ${esc(y)}</h2>
     <p class="muted" style="margin-top:-8px">${groups.length ? `<span class="num">${money(total, 0)}</span> in ${esc(y)}.${why}` : `Nothing in ${esc(y)} yet.`}</p>
