@@ -326,8 +326,14 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .sv-delta .dl{font-size:13px}
 .dl.up{color:var(--good)} .dl.down{color:var(--bad)}
 .sv-note{font-size:13px;line-height:1.45;color:var(--ink-2);margin:10px 0 0}
-.sv-hist{margin-top:4px}
-.sv-row{display:grid;grid-template-columns:36px minmax(0,1fr) 84px;gap:10px;align-items:center;width:100%;text-align:left;padding-block:7px}
+.sv-hist{margin-top:4px;position:relative}
+.sv-row{display:grid;grid-template-columns:36px minmax(0,1fr) 84px;gap:10px;align-items:center;width:100%;text-align:left;padding-block:7px;position:relative;z-index:1}
+.sv-grid{position:absolute;top:0;bottom:0;left:46px;right:94px;pointer-events:none}
+.sv-grid i{position:absolute;top:0;bottom:0;width:1px;background:var(--line)}
+.sv-axis{display:grid;grid-template-columns:36px minmax(0,1fr) 84px;gap:10px}
+.sv-ax{position:relative;height:16px}
+.sv-ax i{position:absolute;top:0;transform:translateX(-50%);font-style:normal;font-size:11px;line-height:16px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.sv-ax i:first-child{transform:none}
 .sv-m{font-size:13px;color:var(--ink-2)}
 .sv-row.cur .sv-m{color:var(--ink);font-weight:700}
 .sv-v{text-align:right;font-size:13px}

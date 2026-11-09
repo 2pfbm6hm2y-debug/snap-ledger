@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const APP_VERSION = '1.22.1';
+const APP_VERSION = '1.22.2';
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1237,14 +1237,21 @@ function savingsSection(ym) {
     const legend = `<div class="lgd">${[
       chip('net', 'Net savings'), chip('sp', esc(spName)), chip('gr', 'Gross savings'), target ? chip('tg', 'Target') : '',
       anyDown ? chip('down', 'Spent more than earned') : '', anyProj ? chip('pj', 'Projected') : ''].join('')}</div>`;
+    // Faint gridlines at round amounts behind the bars, labelled underneath, to gauge each part.
+    const raw = max / 4, p10 = 10 ** Math.floor(Math.log10(raw)), f = raw / p10;
+    const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p10, ticks = [];
+    for (let v = step; v < max - step * 0.2; v += step) ticks.push(v);
+    const axLabel = v => v >= 1000 ? +(v / 1000).toFixed(1) + 'k' : String(Math.round(v));
+    const grid = `<div class="sv-grid" aria-hidden="true">${ticks.map(v => `<i style="left:${pct(v)}%"></i>`).join('')}</div>`;
+    const axis = `<div class="sv-axis" aria-hidden="true"><span></span><span class="sv-ax">${[0].concat(ticks).map(v => `<i style="left:${pct(v)}%">${axLabel(v)}</i>`).join('')}</span><span></span></div>`;
     h += `<div class="sv-chart"><div class="sv-ch sv-ch-row"><span>Savings by month</span><span>Gross</span></div>`;
-    h += `<div class="sv-hist">` + months.map(x => {
+    h += `<div class="sv-hist">${grid}` + months.map(x => {
       const proj = x.ym >= nowYm, k = kind(x), cut = x.gross > 0 ? Math.min(x.special, x.gross) : 0;
       return `<button class="sv-row${x.ym === ym ? ' cur' : ''}" data-act="goto-month" data-ym="${x.ym}" aria-label="${esc(monthLabel(x.ym))}: ${money(x.gross)} gross${x.special > 0.004 ? `, ${money(x.saved)} net after special spending` : ''}${proj ? ', projected' : ''}">
         <span class="sv-m">${esc(monthShort(x.ym))}</span>
         <span class="sp-track">${target ? `<i class="save-tgt" style="left:${pct(target)}%"></i>` : ''}<span class="save-fill ${k}${proj ? ' proj' : ''}" style="width:${pct(Math.abs(x.gross))}%"></span>${cut > 0.004 ? `<span class="save-sp ${k}${proj ? ' proj' : ''}" style="left:${pct(x.gross - cut)}%;width:${pct(cut)}%"></span>` : ''}</span>
         <span class="num sv-v${x.gross < 0 ? ' t-bad' : ''}">${proj ? '≈' : ''}${money(x.gross)}</span></button>`;
-    }).join('') + `</div>${legend}</div>`;
+    }).join('') + `</div>${axis}${legend}</div>`;
   }
   return h + yearRecap(ym, since, nowYm, spName) + `</section>`;
 }
